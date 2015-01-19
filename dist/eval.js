@@ -1,30 +1,31 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+(function (global){
+"use strict";
+
 //TODO:
 //- scan blocks for declaration statements before executing
-//- ForInStatement
-//- ConditionalExpression
 //- throw/break/continue/catch/return
 //- SwitchStatement
 //- LabeledStatement
-//- WithStatement
+//-> TESTS
+//-> BENCHMARKS
 
-var parse = require('acorn').parse;
+var parse = require('acorn/acorn_csp').parse;
 
-function noop() {};
+function noop() {}
 
-function Environment(scopes, topThis) {
-  // TODO: check performance of this scoping approach
-  if (!Array.isArray(scopes)) {
-    scopes = [scopes];
+function Environment(scopesOrGlobalObj) {
+  if (!Array.isArray(scopesOrGlobalObj)) {
+    scopesOrGlobalObj = [scopesOrGlobalObj];
   }
   var parent;
-  scopes.forEach(function (vars) {
+  scopesOrGlobalObj.forEach(function (vars) {
     parent = createScope(vars, parent);
   });
   // the topmost scope is our current scope
   this._curScope = parent;
-  this._globalObj = scopes[0];
-  this._curThis = topThis;
+  this._globalObj = scopesOrGlobalObj[0];
+  this._curThis = this._globalObj;
 }
 
 function createScope(vars, parent) {
@@ -59,9 +60,12 @@ Environment.prototype.gen = function (node) {
     ReturnStatement: this.genRetStmt,
     FunctionExpression: this.genFuncExpr,
     IfStatement: this.genIfStmt,
+    ConditionalExpression: this.genIfStmt,
     ForStatement: this.genLoopStmt,
     WhileStatement: this.genLoopStmt,
     DoWhileStatement: this.genDoWhileStmt,
+    ForInStatement: this.genForInStmt,
+    WithStatement: this.genWithStmt,
   }[node.type] || function () {
     console.warn("Not implemented yet: " + node.type);
     return noop;
@@ -70,47 +74,48 @@ Environment.prototype.gen = function (node) {
 
 Environment.prototype.genBinExpr = function (node) {
   var cmp = {
-    '==': function (a, b) {return a == b},
-    '!=': function (a, b) {return a != b},
-    '===': function (a, b) {return a === b},
-    '!==': function (a, b) {return a !== b},
-    '<': function (a, b) {return a < b},
-    '<=': function (a, b) {return a <= b},
-    '>': function (a, b) {return a > b},
-    '>=': function (a, b) {return a >= b},
-    '<<': function (a, b) {return a << b},
-    '>>': function (a, b) {return a >> b},
-    '>>>': function (a, b) {return a >>> b},
-    '+': function (a, b) {return a + b},
-    '-': function (a, b) {return a - b},
-    '*': function (a, b) {return a * b},
-    '/': function (a, b) {return a / b},
-    '%': function (a, b) {return a % b},
-    '|': function (a, b) {return a | b},
-    '^': function (a, b) {return a ^ b},
-    '&': function (a, b) {return a & b},
-    'in': function (a, b) {return a in b},
-    'instanceof': function (a, b) {return a instanceof b},
+    '==': function (a, b) {return a == b; },
+    '!=': function (a, b) {return a != b; },
+    '===': function (a, b) {return a === b; },
+    '!==': function (a, b) {return a !== b; },
+    '<': function (a, b) {return a < b; },
+    '<=': function (a, b) {return a <= b; },
+    '>': function (a, b) {return a > b; },
+    '>=': function (a, b) {return a >= b; },
+    '<<': function (a, b) {return a << b; },
+    '>>': function (a, b) {return a >> b; },
+    '>>>': function (a, b) {return a >>> b; },
+    '+': function (a, b) {return a + b; },
+    '-': function (a, b) {return a - b; },
+    '*': function (a, b) {return a * b; },
+    '/': function (a, b) {return a / b; },
+    '%': function (a, b) {return a % b; },
+    '|': function (a, b) {return a | b; },
+    '^': function (a, b) {return a ^ b; },
+    '&': function (a, b) {return a & b; },
+    'in': function (a, b) {return a in b; },
+    'instanceof': function (a, b) {return a instanceof b; },
     // logic expressions
-    '||': function (a, b) {return a || b},
-    '&&': function (a, b) {return a && b},
+    '||': function (a, b) {return a || b; },
+    '&&': function (a, b) {return a && b; },
   }[node.operator];
   var left = this.gen(node.left);
   var right = this.gen(node.right);
   return function () {
-    return cmp(left(), right())
-  }
+    return cmp(left(), right());
+  };
 };
 
 Environment.prototype.genUnaryExpr = function (node) {
   var op = {
-    '-': function (a) {return -a},
-    '+': function (a) {return +a},
-    '!': function (a) {return !a},
-    '~': function (a) {return ~a},
-    'typeof': function (a) {return typeof a},
-    'void': function (a) {return void a},
-    'delete': function (a) {return delete a},
+    '-': function (a) {return -a; },
+    '+': function (a) {return +a; },
+    '!': function (a) {return !a; },
+    '~': function (a) {return ~a; },
+    'typeof': function (a) {return typeof a; },
+    'void': function (a) {return void a; },
+//TODO
+//    'delete': function (a) {return delete a; },
   }[node.operator];
   var argument = this.gen(node.argument);
 
@@ -127,16 +132,19 @@ Environment.prototype.genObjExpr = function (node) {
     // object expression keys are static so can be calculated
     // immediately
     var key = self._objKey(property.key)();
-    items.push([key, self.gen(property.value)]);
+    items.push({
+      key: key,
+      getVal: self.gen(property.value)
+    });
   });
   return function () {
     var result = {};
 
     items.forEach(function (item) {
-      result[item[0]] = item[1]();
+      result[item.key] = item.getVal();
     });
     return result;
-  }
+  };
 };
 
 Environment.prototype.genArrExpr = function (node) {
@@ -160,7 +168,7 @@ Environment.prototype._objKey = function (node) {
   }
   return function () {
     return key;
-  }
+  };
 };
 
 Environment.prototype.genCallExpr = function (node) {
@@ -181,10 +189,11 @@ Environment.prototype.genCallExpr = function (node) {
     return self.gen(arg);
   });
   return function () {
-    return callee().apply(this._globalObj, args.map(function (arg) {
+    //FIXME globalObj?
+    return callee().apply(self._globalObj, args.map(function (arg) {
       return arg();
     }));
-  }
+  };
 };
 
 Environment.prototype.genNewExpr = function (node) {
@@ -197,12 +206,12 @@ Environment.prototype.genNewExpr = function (node) {
     return newWithArgs(callee(), args.map(function (arg) {
       return arg();
     }));
-  }
-}
+  };
+};
 
 function newWithArgs(Cls, args) {
   var allArgs = [Cls].concat(args);
-  return new (Function.prototype.bind.apply(Cls, allArgs));
+  return new (Function.prototype.bind.apply(Cls, allArgs))();
 }
 
 Environment.prototype.genMemExpr = function (node) {
@@ -241,10 +250,10 @@ Environment.prototype.genSeqExpr = function (node) {
 
 Environment.prototype.genUpdExpr = function (node) {
   var update = {
-    '--true': function (obj, name) {return --obj[name]},
-    '--false': function (obj, name) {return obj[name]--},
-    '++true': function (obj, name) {return ++obj[name]},
-    '++false': function (obj, name) {return obj[name]++},
+    '--true': function (obj, name) {return --obj[name]; },
+    '--false': function (obj, name) {return obj[name]--; },
+    '++true': function (obj, name) {return ++obj[name]; },
+    '++false': function (obj, name) {return obj[name]++; },
   }[node.operator + node.prefix];
   var obj = this._genObj(node.argument);
   var name = this._genName(node.argument);
@@ -266,7 +275,7 @@ Environment.prototype._genObj = function (node) {
 
 Environment.prototype._genName = function (node) {
   if (node.type === 'Identifier') {
-    return function () {return node.name};
+    return function () {return node.name; };
   } else if (node.type === 'MemberExpression') {
     return this._memExprProperty(node);
   } else {
@@ -302,18 +311,18 @@ Environment.prototype._getScopeVars = function (name) {
 
 Environment.prototype.genAssignExpr = function (node) {
   var setter = {
-    '=': function (obj, name, val) {return obj[name] = val},
-    '+=': function (obj, name, val) {return obj[name] += val},
-    '-=': function (obj, name, val) {return obj[name] -= val},
-    '*=': function (obj, name, val) {return obj[name] *= val},
-    '/=': function (obj, name, val) {return obj[name] /= val},
-    '%=': function (obj, name, val) {return obj[name] %= val},
-    '<<=': function (obj, name, val) {return obj[name] <<= val},
-    '>>=': function (obj, name, val) {return obj[name] >>= val},
-    '>>>=': function (obj, name, val) {return obj[name] >>>= val},
-    '|=': function (obj, name, val) {return obj[name] |= val},
-    '^=': function (obj, name, val) {return obj[name] ^= val},
-    '&=': function (obj, name, val) {return obj[name] &= val},
+    '=': function (obj, name, val) {return (obj[name] = val); },
+    '+=': function (obj, name, val) {return obj[name] += val; },
+    '-=': function (obj, name, val) {return obj[name] -= val; },
+    '*=': function (obj, name, val) {return obj[name] *= val; },
+    '/=': function (obj, name, val) {return obj[name] /= val; },
+    '%=': function (obj, name, val) {return obj[name] %= val; },
+    '<<=': function (obj, name, val) {return obj[name] <<= val; },
+    '>>=': function (obj, name, val) {return obj[name] >>= val; },
+    '>>>=': function (obj, name, val) {return obj[name] >>>= val; },
+    '|=': function (obj, name, val) {return obj[name] |= val; },
+    '^=': function (obj, name, val) {return obj[name] ^= val; },
+    '&=': function (obj, name, val) {return obj[name] &= val; },
   }[node.operator];
   var obj = this._genObj(node.left);
   var name = this._genName(node.left);
@@ -344,7 +353,7 @@ Environment.prototype.genFuncExpr = function (node) {
   var self = this;
   var body = self.gen(node.body);
   return function () {
-    // TODO: check 'arguments' V8 perf
+    // TODO: fix 'arguments' V8 perf
     var scope = createScope({}, self._curScope);
     return function () {
       scope.vars.arguments = arguments;
@@ -406,10 +415,7 @@ Environment.prototype.genIfStmt = function (node) {
   var alternate = node.alternate ? this.gen(node.alternate) : noop;
 
   return function () {
-    if (test()) {
-      return consequent();
-    }
-    return alternate();
+    return test() ? consequent() : alternate();
   };
 };
 
@@ -419,7 +425,7 @@ Environment.prototype.genLoopStmt = function (node, body) {
     return true;
   };
   var update = node.update ? this.gen(node.update) : noop;
-  var body = body || this.gen(node.body);
+  body = body || this.gen(node.body);
 
   return function () {
     var resp;
@@ -440,16 +446,56 @@ Environment.prototype.genDoWhileStmt = function (node) {
   };
 };
 
+Environment.prototype.genForInStmt = function (node) {
+/*  var self = this;
+  var left = self.gen(node.left);
+  var right = self.gen(node.right);
+  var body = self.gen(node.body);
+
+  var left = node.left;
+  if (left.type === 'VariableDeclaration') {
+    left = left.declarations[0].id;
+  }
+  return function () {
+    var resp;
+    for (x in right()) {
+      self.genAssignExpr({
+        left: left,
+        right: {
+          type: 'Literal',
+          value: x
+        }
+      })();
+      resp = body();
+    }
+    return resp;
+  };*/
+  return noop;
+};
+
+Environment.prototype.genWithStmt = function (node) {
+  var self = this;
+  var obj = self.gen(node.object);
+  var body = self.gen(node.body);
+  return function () {
+    var prevScope = self._curScope;
+    self._curScope = createScope(obj(), prevScope);
+    body();
+    self._curScope = prevScope;
+  };
+};
+
 exports.Environment = Environment;
-exports.eval = function (code, globalObj) {
+exports.evaluate = function (code) {
   var ast = parse(code);
-  var env = new Environment(globalObj);
+  var env = new Environment(global);
   return env.gen(ast)();
 };
 
-//console.log(exports.eval("1 + 1"));
+console.log(exports.evaluate("1 + 1"));
 
-},{"acorn":2}],2:[function(require,module,exports){
+}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"acorn/acorn_csp":2}],2:[function(require,module,exports){
 // Acorn is a tiny, fast JavaScript parser written in JavaScript.
 //
 // Acorn was written by Marijn Haverbeke and various contributors and
@@ -921,68 +967,43 @@ exports.eval = function (code, globalObj) {
   //
   // It starts by sorting the words by length.
 
-  function makePredicate(words) {
-    words = words.split(" ");
-    var f = "", cats = [];
-    out: for (var i = 0; i < words.length; ++i) {
-      for (var j = 0; j < cats.length; ++j)
-        if (cats[j][0].length == words[i].length) {
-          cats[j].push(words[i]);
-          continue out;
-        }
-      cats.push([words[i]]);
-    }
-    function compareTo(arr) {
-      if (arr.length == 1) return f += "return str === " + JSON.stringify(arr[0]) + ";";
-      f += "switch(str){";
-      for (var i = 0; i < arr.length; ++i) f += "case " + JSON.stringify(arr[i]) + ":";
-      f += "return true}return false;";
-    }
-
-    // When there are more than three length categories, an outer
-    // switch first dispatches on the lengths, to save on comparisons.
-
-    if (cats.length > 3) {
-      cats.sort(function(a, b) {return b.length - a.length;});
-      f += "switch(str.length){";
-      for (var i = 0; i < cats.length; ++i) {
-        var cat = cats[i];
-        f += "case " + cat[0].length + ":";
-        compareTo(cat);
-      }
-      f += "}";
-
-    // Otherwise, simply generate a flat `switch` statement.
-
-    } else {
-      compareTo(words);
-    }
-    return new Function("str", f);
-  }
+  // Removed to create an eval-free library
 
   // The ECMAScript 3 reserved word list.
 
-  var isReservedWord3 = makePredicate("abstract boolean byte char class double enum export extends final float goto implements import int interface long native package private protected public short static super synchronized throws transient volatile");
+  var isReservedWord3 = function anonymous(str) {
+switch(str.length){case 6:switch(str){case "double":case "export":case "import":case "native":case "public":case "static":case "throws":return true}return false;case 4:switch(str){case "byte":case "char":case "enum":case "goto":case "long":return true}return false;case 5:switch(str){case "class":case "final":case "float":case "short":case "super":return true}return false;case 7:switch(str){case "boolean":case "extends":case "package":case "private":return true}return false;case 9:switch(str){case "interface":case "protected":case "transient":return true}return false;case 8:switch(str){case "abstract":case "volatile":return true}return false;case 10:return str === "implements";case 3:return str === "int";case 12:return str === "synchronized";}
+};
 
   // ECMAScript 5 reserved words.
 
-  var isReservedWord5 = makePredicate("class enum extends super const export import");
+  var isReservedWord5 = function anonymous(str) {
+switch(str.length){case 5:switch(str){case "class":case "super":case "const":return true}return false;case 6:switch(str){case "export":case "import":return true}return false;case 4:return str === "enum";case 7:return str === "extends";}
+};
 
   // The additional reserved words in strict mode.
 
-  var isStrictReservedWord = makePredicate("implements interface let package private protected public static yield");
+  var isStrictReservedWord = function anonymous(str) {
+switch(str.length){case 9:switch(str){case "interface":case "protected":return true}return false;case 7:switch(str){case "package":case "private":return true}return false;case 6:switch(str){case "public":case "static":return true}return false;case 10:return str === "implements";case 3:return str === "let";case 5:return str === "yield";}
+};
 
   // The forbidden variable names in strict mode.
 
-  var isStrictBadIdWord = makePredicate("eval arguments");
+  var isStrictBadIdWord = function anonymous(str) {
+switch(str){case "eval":case "arguments":return true}return false;
+};
 
   // And the keywords.
 
   var ecma5AndLessKeywords = "break case catch continue debugger default do else finally for function if return switch throw try var while with null true false instanceof typeof void delete new in this";
 
-  var isEcma5AndLessKeyword = makePredicate(ecma5AndLessKeywords);
+  var isEcma5AndLessKeyword = function anonymous(str) {
+switch(str.length){case 4:switch(str){case "case":case "else":case "with":case "null":case "true":case "void":case "this":return true}return false;case 5:switch(str){case "break":case "catch":case "throw":case "while":case "false":return true}return false;case 3:switch(str){case "for":case "try":case "var":case "new":return true}return false;case 6:switch(str){case "return":case "switch":case "typeof":case "delete":return true}return false;case 8:switch(str){case "continue":case "debugger":case "function":return true}return false;case 2:switch(str){case "do":case "if":case "in":return true}return false;case 7:switch(str){case "default":case "finally":return true}return false;case 10:return str === "instanceof";}
+};
 
-  var isEcma6Keyword = makePredicate(ecma5AndLessKeywords + " let const class extends export import yield");
+  var isEcma6Keyword = function anonymous(str) {
+switch(str.length){case 5:switch(str){case "break":case "catch":case "throw":case "while":case "false":case "const":case "class":case "yield":return true}return false;case 4:switch(str){case "case":case "else":case "with":case "null":case "true":case "void":case "this":return true}return false;case 6:switch(str){case "return":case "switch":case "typeof":case "delete":case "export":case "import":return true}return false;case 3:switch(str){case "for":case "try":case "var":case "new":case "let":return true}return false;case 8:switch(str){case "continue":case "debugger":case "function":return true}return false;case 7:switch(str){case "default":case "finally":case "extends":return true}return false;case 2:switch(str){case "do":case "if":case "in":return true}return false;case 10:return str === "instanceof";}
+};
 
   var isKeyword = isEcma5AndLessKeyword;
 

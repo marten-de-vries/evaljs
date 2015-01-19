@@ -1,6 +1,10 @@
 eval.js
 =======
 
+[![Build Status](https://travis-ci.org/marten-de-vries/evaljs.svg?branch=master)](https://travis-ci.org/marten-de-vries/evaljs)
+[![Dependency Status](https://david-dm.org/marten-de-vries/evaljs.svg)](https://david-dm.org/marten-de-vries/evaljs)
+[![devDependency Status](https://david-dm.org/marten-de-vries/evaljs/dev-status.svg)](https://david-dm.org/marten-de-vries/evaljs#info=devDependencies)
+
 A JavaScript interpreter written in JavaScript.
 
 ATTENTION: THIS IS A WORK-IN-PROGRESS

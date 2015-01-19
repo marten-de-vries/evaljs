@@ -1,0 +1,35 @@
+{
+  "name": "evaljs",
+  "version": "0.1.0",
+  "description": "A JavaScript interpreter written in JavaScript",
+  "main": "index.js",
+  "dependencies": {
+    "acorn": "^0.11.0"
+  },
+  "devDependencies": {
+    "browserify": "^8.1.1",
+    "is-optimizable": "^1.0.1",
+    "jshint": "^2.5.11",
+    "uglify-js": "^2.4.16"
+  },
+  "scripts": {
+    "test": "npm run optimized && npm run jshint && node test.js",
+    "optimized": "./node_modules/.bin/is-optimizable index.js test.js",
+    "jshint": "./node_modules/.bin/jshint index.js test.js theTest.js",
+    "build": "mkdir -p dist && npm run build-js && npm run minify",
+    "build-js": "./node_modules/.bin/browserify index.js -S evaljs -o dist/eval.js",
+    "minify": "./node_modules/.bin/uglifyjs -mc -o dist/eval.min.js dist/eval.js"
+  },
+  "keywords": [
+    "eval",
+    "javascript",
+    "interpreter",
+    "closure",
+    "closures",
+    "js",
+    "evaluate",
+    "no-eval"
+  ],
+  "author": "Marten de Vries <marten@marten-de-vries.nl> (http://marten-de-vries.nl/)",
+  "license": "ISC"
+}

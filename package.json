@@ -1,6 +1,6 @@
 {
   "name": "evaljs",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A JavaScript interpreter written in JavaScript",
   "main": "index.js",
   "dependencies": {
@@ -30,6 +30,10 @@
     "evaluate",
     "no-eval"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/marten-de-vries/evaljs.git"
+  },
   "author": "Marten de Vries",
   "license": "ISC"
 }

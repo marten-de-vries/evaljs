@@ -1,6 +1,6 @@
 {
   "name": "evaljs",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "A JavaScript interpreter written in JavaScript",
   "main": "index.js",
   "dependencies": {
@@ -8,7 +8,7 @@
   },
   "devDependencies": {
     "browserify": "^8.1.1",
-    "is-optimizable": "^1.0.1",
+    "is-optimizable": "^1.1.0",
     "jshint": "^2.5.11",
     "uglify-js": "^2.4.16"
   },

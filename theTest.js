@@ -1,6 +1,9 @@
 // not strict, 'cause we need to parse the with statement
 /* jshint strict: false */
 
+// statements after a return are ok for test cases
+/* jshint -W027 */
+
 var op = {
 	'+': function (a, b) {return a + b; }
 }['+'];
@@ -70,11 +73,21 @@ do {
 console.log(1 ? 0 : 1);
 console.log(0 ? 0 : 1);
 
-/*jshint ignore:start*/
-with ({a: 1, b: 2}) {
-	console.log(a, b);
+try {
+	throw new Error('Hello World!');
+} catch (err) {
+} finally {
 }
-/*jshint ignore:end*/
+
+for (var i = 0; i < 10; i++) {
+	if (i === 1) {
+		continue;
+	}
+	if (i === 3) {
+		break;
+	}
+	console.log(i);
+}
 
 /*
 var x = 2;
@@ -96,3 +109,24 @@ for (var key in {a: 1, b: 2}) {
 	console.log(key);
 }
 */
+
+/*jshint ignore:start*/
+with ({a: 1, b: 2}) {
+	console.log(a, b);
+}
+/*jshint ignore:end*/
+
+console.log(function () {
+	var x = 4;
+	console.log(1);
+	if (x) {
+		console.log(2);
+		for (var i = 0; i < 3; i++) {
+			console.log(3);
+			return x;
+			console.log(5);
+		}
+		console.log(6);
+	}
+	console.log(7);
+}());

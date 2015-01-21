@@ -2,9 +2,10 @@
 
 //TODO:
 //- LabeledStatement -> including use in break/continue
+//- ForInStatement -> there is a start, finish it.
+//- nicer error handling?
 //-> TESTS
 //-> BENCHMARKS
-//-> nicer error handling?
 
 var parse = require('acorn/acorn_csp').parse;
 

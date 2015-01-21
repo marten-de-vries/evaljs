@@ -57,9 +57,9 @@ ISC
 Is it complete?
 ---------------
 
-No labeled statements; no nice error handling; there are probably bugs.
-That said, it can run itself so it's supported subset of JS is usable.
-PRs welcome!
+No labeled statements; no nice error handling; no for-in loops. There
+are probably bugs. That said, it can run itself so its supported subset
+of JS is usable. PRs containing improvements welcome!
 
 How slow is it?
 ---------------

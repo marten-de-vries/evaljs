@@ -6,7 +6,6 @@
 // missing break statements in switch statements are ok
 /* jshint -W086 */
 
-/*
 var op = {
 	'+': function (a, b) {return a + b; }
 }['+'];
@@ -106,7 +105,7 @@ console.log(function () {
 	}
 	console.log(7);
 }());
-*/
+
 var x = 2;
 switch (x) {
 	case 1:

@@ -168,6 +168,18 @@ for (var key in {a: 1, b: 2}) {
 	console.log(key);
 }
 
+abcdefg();
+
+function abcdefg() {
+	console.log('should be called');
+}
+
+var obj = {};
+obj.a = 3;
+console.log(obj.a);
+delete obj.a;
+console.log(obj.a);
+
 /*jshint ignore:start*/
 with ({a: 1, b: 2}) {
 	console.log(a, b);

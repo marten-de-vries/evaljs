@@ -40,7 +40,7 @@ function Environment(globalObjects) {
   });
   // the topmost store is our current store
   this._curVarStore = parent;
-  this._curDeclarations = [];
+  this._curDeclarations = {};
   this._globalObj = globalObjects[0];
   this._curThis = this._globalObj;
 
@@ -67,7 +67,7 @@ Environment.prototype.gen = function (node) {
   }
   var resp = this._gen(node);
   addDeclarationsToStore(this._curDeclarations, this._curVarStore);
-  this._curDeclarations = [];
+  this._curDeclarations = {};
   return resp;
 };
 
@@ -165,20 +165,30 @@ Environment.prototype._genBinExpr = function (node) {
 };
 
 Environment.prototype._genUnaryExpr = function (node) {
+  if (node.operator === 'delete') {
+    return this._genDelete(node);
+  }
+
+  var a = this._gen(node.argument);
   var op = {
-    '-': function (a) {return -a; },
-    '+': function (a) {return +a; },
-    '!': function (a) {return !a; },
-    '~': function (a) {return ~a; },
-    'typeof': function (a) {return typeof a; },
-    'void': function (a) {return void a; },
-//TODO
-//    'delete': function (a) {return delete a; },
+    '-': function () {return -a(); },
+    '+': function () {return +a(); },
+    '!': function () {return !a(); },
+    '~': function () {return ~a(); },
+    'typeof': function () {return typeof a(); },
+    'void': function () {return void a(); },
   }[node.operator];
-  var argument = this._gen(node.argument);
 
   return function () {
-    return op(argument());
+    return op();
+  };
+};
+
+Environment.prototype._genDelete = function (node) {
+  var obj = this._genObj(node.argument);
+  var attr = this._genName(node.argument);
+  return function () {
+    return delete obj()[attr()];
   };
 };
 
@@ -368,22 +378,16 @@ Environment.prototype._genAssignExpr = function (node) {
 };
 
 Environment.prototype._genFuncDecl = function (node) {
-  this._curDeclarations.push(node.id.name);
+  this._curDeclarations[node.id.name] = this._genFuncExpr(node);
 
-  node.type = 'FunctionExpression';
-  return this._gen({
-    type: 'AssignmentExpression',
-    operator: '=',
-    left: node.id,
-    right: node
-  });
+  return noop;
 };
 
 Environment.prototype._genVarDecl = function (node) {
   var assignments = [];
   for (var i = 0; i < node.declarations.length; i++) {
     var decl = node.declarations[i];
-    this._curDeclarations.push(decl.id.name);
+    this._curDeclarations[decl.id.name] = noop;
     if (decl.init) {
       assignments.push({
         type: 'AssignmentExpression',
@@ -403,7 +407,7 @@ Environment.prototype._genFuncExpr = function (node) {
   var self = this;
 
   var oldDeclarations = self._curDeclarations;
-  self._curDeclarations = [];
+  self._curDeclarations = {};
   var body = self._gen(node.body);
   var declarations = self._curDeclarations;
   self._curDeclarations = oldDeclarations;
@@ -418,20 +422,20 @@ Environment.prototype._genFuncExpr = function (node) {
       for (var i = 0; i < arguments.length; i ++) {
         args[i] = arguments[i];
       }
-      var varStore = createVarStore(parent);
-      addDeclarationsToStore(declarations, varStore);
-
-      varStore.vars.arguments = args;
-      // add function args to var store
-      node.params.forEach(function (param, i) {
-        varStore.vars[param.name] = args[i];
-      });
 
       // switch interpreter 'stack'
       var oldStore = self._curVarStore;
       var oldThis = self._curThis;
-      self._curVarStore = varStore;
+      self._curVarStore = createVarStore(parent);
       self._curThis = this;
+
+      addDeclarationsToStore(declarations, self._curVarStore);
+      self._curVarStore.vars.arguments = args;
+
+      // add function args to var store
+      node.params.forEach(function (param, i) {
+        self._curVarStore.vars[param.name] = args[i];
+      });
 
       // run function body
       var result = body();
@@ -448,9 +452,9 @@ Environment.prototype._genFuncExpr = function (node) {
 };
 
 function addDeclarationsToStore(declarations, varStore) {
-  for (var i = 0; i < declarations.length; i++) {
-    if (!varStore.vars.hasOwnProperty(declarations[i])) {
-      varStore.vars[declarations[i]] = undefined;
+  for (var key in declarations) {
+    if (declarations.hasOwnProperty(key) && !varStore.vars.hasOwnProperty(key)) {
+      varStore.vars[key] = declarations[key]();
     }
   }
 }
@@ -542,7 +546,7 @@ Environment.prototype._genForInStmt = function (node) {
 
   var left = node.left;
   if (left.type === 'VariableDeclaration') {
-    self._curDeclarations.push(left.declarations[0].id.name);
+    self._curDeclarations[left.declarations[0].id.name] = noop;
     left = left.declarations[0].id;
   }
   return function () {

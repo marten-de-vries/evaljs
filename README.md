@@ -7,8 +7,6 @@ eval.js
 
 A JavaScript interpreter written in JavaScript.
 
-ATTENTION: THIS IS A WORK-IN-PROGRESS
-
 Why?
 ----
 
@@ -55,6 +53,13 @@ License?
 --------
 
 ISC
+
+Is it complete?
+---------------
+
+No labeled statements; no nice error handling; there are probably bugs.
+That said, it can run itself so it's supported subset of JS is usable.
+PRs welcome!
 
 How slow is it?
 ---------------

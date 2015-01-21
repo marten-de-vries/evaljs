@@ -3,7 +3,10 @@
 
 // statements after a return are ok for test cases
 /* jshint -W027 */
+// missing break statements in switch statements are ok
+/* jshint -W086 */
 
+/*
 var op = {
 	'+': function (a, b) {return a + b; }
 }['+'];
@@ -89,33 +92,6 @@ for (var i = 0; i < 10; i++) {
 	console.log(i);
 }
 
-/*
-var x = 2;
-switch (x) {
-	case 1:
-		console.log(1);
-	case 2:
-		console.log(2);
-	case 3:
-		console.log(3);
-		break
-	case 4:
-		console.log(4);
-}
-*/
-
-/*
-for (var key in {a: 1, b: 2}) {
-	console.log(key);
-}
-*/
-
-/*jshint ignore:start*/
-with ({a: 1, b: 2}) {
-	console.log(a, b);
-}
-/*jshint ignore:end*/
-
 console.log(function () {
 	var x = 4;
 	console.log(1);
@@ -130,3 +106,68 @@ console.log(function () {
 	}
 	console.log(7);
 }());
+*/
+var x = 2;
+switch (x) {
+	case 1:
+		console.log(1);
+		//falls through
+	case 2:
+		console.log(2);
+	case 3:
+		console.log(3);
+		break;
+	case 4:
+		console.log(4);
+	default:
+		console.log(5);
+}
+
+switch (x) {
+	case 1:
+		console.log(1);
+	default:
+		console.log(2);
+}
+
+switch (x) {
+	case 2:
+		console.log(3);
+		break;
+	default:
+		console.log(4);
+}
+
+switch (x) {
+	case 2:
+		console.log(5);
+	default:
+		console.log(6);
+}
+
+switch (x) {
+	default:
+		console.log(7);
+	case 2:
+		console.log(8);
+}
+
+switch (x) {
+	default:
+		console.log(9);
+		break;
+	case 2:
+		console.log(10);
+}
+
+/*
+for (var key in {a: 1, b: 2}) {
+	console.log(key);
+}
+*/
+
+/*jshint ignore:start*/
+with ({a: 1, b: 2}) {
+	console.log(a, b);
+}
+/*jshint ignore:end*/

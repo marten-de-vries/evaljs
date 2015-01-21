@@ -159,11 +159,14 @@ switch (x) {
 		console.log(10);
 }
 
-/*
+var z;
+for (z in {a: 1, b: 2}) {
+	console.log(z);
+}
+
 for (var key in {a: 1, b: 2}) {
 	console.log(key);
 }
-*/
 
 /*jshint ignore:start*/
 with ({a: 1, b: 2}) {

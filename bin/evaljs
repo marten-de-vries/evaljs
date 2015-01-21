@@ -1,0 +1,17 @@
+#!/usr/bin/env node
+
+var repl = require('repl');
+var evaljs = require('../');
+var parse = require('acorn/acorn_csp').parse;
+var fs = require('fs');
+var env = new evaljs.Environment([global, {require: require}]);
+
+repl.start({
+  eval: function (cmd, context, filename, callback) {
+    try {
+      callback(null, env.gen(cmd)())
+    } catch (err) {
+      callback(err);
+    };
+  }
+});

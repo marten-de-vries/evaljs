@@ -28,6 +28,34 @@ It's also possible to use **eval.js** with [esprima][].
 [AST]: https://en.wikipedia.org/wiki/Abstract_syntax_tree
 [esprima]: http://esprima.org/
 
+Command line interface
+----------------------
+
+This npm package comes with a REPL which allows you to experiment with
+it. It's easy to install and use:
+
+```
+marten@procyon:~/git/evaljs$ npm install -g evaljs
+marten@procyon:~/git/evaljs$ evaljs
+> 1 + 1
+2
+> new Error('Hello World!')
+[Error: Hello World!]
+> throw new Error('Hello World!')
+Error: Hello World!
+    at newWithArgs (/home/marten/git/evaljs/index.js:255:10)
+    at /home/marten/git/evaljs/index.js:249:12
+    at Array.0 (/home/marten/git/evaljs/index.js:581:11)
+    at /home/marten/git/evaljs/index.js:466:31
+    at REPLServer.repl.start.eval (/home/marten/git/evaljs/bin/evaljs:12:34)
+    at repl.js:249:20
+    at REPLServer.repl.start.eval (/home/marten/git/evaljs/bin/evaljs:14:7)
+    at Interface.<anonymous> (repl.js:239:12)
+    at Interface.EventEmitter.emit (events.js:95:17)
+    at Interface._onLine (readline.js:202:10)
+> marten@procyon:~/git/evaljs$
+```
+
 API
 ---
 
@@ -44,6 +72,14 @@ API
     This is handy for emulating Node.js (for passing in ``require()``,
     ``exports``, and ``module``.)
 
+  A JS Environment has the following properties:
+  - ``env.gen(node)``: Takes either the result of acorn's ``parse()``
+    method (an AST), or a JS string containing source code. This
+    AST/code will be converted into a function that, when run, executes
+    the AST/code passed in and returns the result.
+  - ``env.DEBUG``: When set to ``true``, evaljs will write debug
+    information to stdout.
+
 Size?
 -----
 
@@ -57,9 +93,10 @@ ISC
 Is it complete?
 ---------------
 
-No labeled statements; no nice error handling; no for-in loops. There
-are probably bugs. That said, it can run itself so its supported subset
-of JS is usable. PRs containing improvements welcome!
+No labeled statements; no nice error handling (although there is a
+``DEBUG`` option). There are probably bugs. That said, it can run itself
+including acorn without modifications, so its supported subset of JS is
+usable. PRs containing improvements welcome!
 
 How slow is it?
 ---------------

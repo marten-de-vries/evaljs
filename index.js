@@ -2,7 +2,6 @@
 
 //TODO:
 //- LabeledStatement -> including use in break/continue
-//- ForInStatement -> there is a start, finish it.
 //- nicer error handling?
 //-> TESTS
 //-> BENCHMARKS
@@ -46,6 +45,8 @@ function Environment(globalObjects) {
   this._curThis = this._globalObj;
 
   this._boundGen = this._gen.bind(this);
+
+  this.DEBUG = false;
 }
 
 function createVarStore(parent, vars) {
@@ -57,6 +58,13 @@ function createVarStore(parent, vars) {
 }
 
 Environment.prototype.gen = function (node) {
+  var opts = {};
+  if (this.DEBUG) {
+    opts.locations = true;
+  }
+  if (typeof node === 'string') {
+    node = parse(node, opts);
+  }
   var resp = this._gen(node);
   addDeclarationsToStore(this._curDeclarations, this._curVarStore);
   this._curDeclarations = [];
@@ -64,7 +72,7 @@ Environment.prototype.gen = function (node) {
 };
 
 Environment.prototype._gen = function (node) {
-  return ({
+  var closure = ({
     BinaryExpression: this._genBinExpr,
     LogicalExpression: this._genBinExpr,
     UnaryExpression: this._genUnaryExpr,
@@ -103,40 +111,56 @@ Environment.prototype._gen = function (node) {
     console.warn("Not implemented yet: " + node.type);
     return noop;
   }).call(this, node);
+
+  if (this.DEBUG) {
+    return function () {
+      var info = 'closure for ' + node.type + ' called';
+      var line = ((node.loc || {}).start || {}).line;
+      if (line) {
+        info += ' while processing line ' + line;
+      }
+
+      var resp = closure();
+      info += '. Result:';
+      console.log(info, resp);
+      return resp;
+    };
+  }
+  return closure;
 };
 
 Environment.prototype._genBinExpr = function (node) {
-  var cmp = {
-    '==': function (a, b) {return a == b; },
-    '!=': function (a, b) {return a != b; },
-    '===': function (a, b) {return a === b; },
-    '!==': function (a, b) {return a !== b; },
-    '<': function (a, b) {return a < b; },
-    '<=': function (a, b) {return a <= b; },
-    '>': function (a, b) {return a > b; },
-    '>=': function (a, b) {return a >= b; },
-    '<<': function (a, b) {return a << b; },
-    '>>': function (a, b) {return a >> b; },
-    '>>>': function (a, b) {return a >>> b; },
-    '+': function (a, b) {return a + b; },
-    '-': function (a, b) {return a - b; },
-    '*': function (a, b) {return a * b; },
-    '/': function (a, b) {return a / b; },
-    '%': function (a, b) {return a % b; },
-    '|': function (a, b) {return a | b; },
-    '^': function (a, b) {return a ^ b; },
-    '&': function (a, b) {return a & b; },
-    'in': function (a, b) {return a in b; },
-    'instanceof': function (a, b) {return a instanceof b; },
-    // logic expressions
-    '||': function (a, b) {return a || b; },
-    '&&': function (a, b) {return a && b; },
-  }[node.operator];
+  var a = this._gen(node.left);
+  var b = this._gen(node.right);
 
-  var left = this._gen(node.left);
-  var right = this._gen(node.right);
+  var cmp = {
+    '==': function () {return a() == b(); },
+    '!=': function () {return a() != b(); },
+    '===': function () {return a() === b(); },
+    '!==': function () {return a() !== b(); },
+    '<': function () {return a() < b(); },
+    '<=': function () {return a() <= b(); },
+    '>': function () {return a() > b(); },
+    '>=': function () {return a() >= b(); },
+    '<<': function () {return a() << b(); },
+    '>>': function () {return a() >> b(); },
+    '>>>': function () {return a() >>> b(); },
+    '+': function () {return a() + b(); },
+    '-': function () {return a() - b(); },
+    '*': function () {return a() * b(); },
+    '/': function () {return a() / b(); },
+    '%': function () {return a() % b(); },
+    '|': function () {return a() | b(); },
+    '^': function () {return a() ^ b(); },
+    '&': function () {return a() & b(); },
+    'in': function () {return a() in b(); },
+    'instanceof': function () {return a() instanceof b(); },
+    // logic expressions
+    '||': function () {return a() || b(); },
+    '&&': function () {return a() && b(); },
+  }[node.operator];
   return function () {
-    return cmp(left(), right());
+    return cmp();
   };
 };
 
@@ -458,7 +482,7 @@ Environment.prototype._genEmptyStmt = function () {
 };
 
 Environment.prototype._genRetStmt = function (node) {
-  var arg = this._gen(node.argument);
+  var arg = node.argument ? this._gen(node.argument) : noop;
   return function () {
     return new Return(arg());
   };
@@ -512,19 +536,20 @@ Environment.prototype._genDoWhileStmt = function (node) {
 };
 
 Environment.prototype._genForInStmt = function (node) {
-/*  var self = this;
-  var left = self._gen(node.left);
+  var self = this;
   var right = self._gen(node.right);
   var body = self._gen(node.body);
 
   var left = node.left;
   if (left.type === 'VariableDeclaration') {
+    self._curDeclarations.push(left.declarations[0].id.name);
     left = left.declarations[0].id;
   }
   return function () {
     var resp;
-    for (x in right()) {
+    for (var x in right()) {
       self._genAssignExpr({
+        operator: '=',
         left: left,
         right: {
           type: 'Literal',
@@ -534,8 +559,7 @@ Environment.prototype._genForInStmt = function (node) {
       resp = body();
     }
     return resp;
-  };*/
-  return noop;
+  };
 };
 
 Environment.prototype._genWithStmt = function (node) {
@@ -560,18 +584,15 @@ Environment.prototype._genThrowStmt = function (node) {
 Environment.prototype._genTryStmt = function (node) {
   var block = this._gen(node.block);
   var handler = this._genCatchHandler(node.handler);
-  var finalizer = node.finalizer ? this._gen(node.finalizer) : null;
+  var finalizer = node.finalizer ? this._gen(node.finalizer) : function (x) {
+    return x;
+  };
 
   return function () {
     try {
-      block();
+      return finalizer(block());
     } catch (err) {
-      var resp = handler(err);
-      if (!finalizer) {
-        return resp;
-      } 
-    } finally {
-      return finalizer();
+      return finalizer(handler(err));
     }
   };
 };
@@ -646,9 +667,8 @@ Environment.prototype._genSwitchStmt = function (node) {
 
 exports.Environment = Environment;
 exports.evaluate = function (code) {
-  var ast = parse(code);
   var env = new Environment(global);
-  var resp = env.gen(ast)();
+  var resp = env.gen(code)();
   return resp;
 };
 

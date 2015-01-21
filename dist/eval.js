@@ -3,13 +3,10 @@
 "use strict";
 
 //TODO:
-//- scan blocks for declaration statements before executing incl. handle
-//  undefined + maybe es5 reference errors in strict mode
-//- SwitchStatement
 //- LabeledStatement -> including use in break/continue
+//- nicer error handling?
 //-> TESTS
 //-> BENCHMARKS
-//-> nicer error handling?
 
 var parse = require('acorn/acorn_csp').parse;
 
@@ -35,23 +32,27 @@ function Return(val) {
 var Break = {};
 var Continue = {};
 
-function Environment(scopesOrGlobalObj) {
-  if (!Array.isArray(scopesOrGlobalObj)) {
-    scopesOrGlobalObj = [scopesOrGlobalObj];
+function Environment(globalObjects) {
+  if (!Array.isArray(globalObjects)) {
+    globalObjects = [globalObjects];
   }
   var parent;
-  scopesOrGlobalObj.forEach(function (vars) {
-    parent = createScope(vars, parent);
+  globalObjects.forEach(function (vars) {
+    parent = createVarStore(parent, vars);
   });
-  // the topmost scope is our current scope
-  this._curScope = parent;
-  this._globalObj = scopesOrGlobalObj[0];
+  // the topmost store is our current store
+  this._curVarStore = parent;
+  this._curDeclarations = [];
+  this._globalObj = globalObjects[0];
   this._curThis = this._globalObj;
 
-  this._boundGen = this.gen.bind(this);
+  this._boundGen = this._gen.bind(this);
+
+  this.DEBUG = false;
 }
 
-function createScope(vars, parent) {
+function createVarStore(parent, vars) {
+  vars = vars || {};
   return {
     parent: parent,
     vars: vars
@@ -59,82 +60,113 @@ function createScope(vars, parent) {
 }
 
 Environment.prototype.gen = function (node) {
-  return ({
-    BinaryExpression: this.genBinExpr,
-    LogicalExpression: this.genBinExpr,
-    UnaryExpression: this.genUnaryExpr,
-    UpdateExpression: this.genUpdExpr,
-    ObjectExpression: this.genObjExpr,
-    ArrayExpression: this.genArrExpr,
-    CallExpression: this.genCallExpr,
-    NewExpression: this.genNewExpr,
-    MemberExpression: this.genMemExpr,
-    ThisExpression: this.genThisExpr,
-    SequenceExpression: this.genSeqExpr,
-    Literal: this.genLit,
-    Identifier: this.genIdent,
-    AssignmentExpression: this.genAssignExpr,
-    FunctionDeclaration: this.genFuncDecl,
-    VariableDeclaration: this.genVarDecl,
-    BlockStatement: this.genProgram,
-    Program: this.genProgram,
-    ExpressionStatement: this.genExprStmt,
-    EmptyStatement: this.genEmptyStmt,
-    ReturnStatement: this.genRetStmt,
-    FunctionExpression: this.genFuncExpr,
-    IfStatement: this.genIfStmt,
-    ConditionalExpression: this.genIfStmt,
-    ForStatement: this.genLoopStmt,
-    WhileStatement: this.genLoopStmt,
-    DoWhileStatement: this.genDoWhileStmt,
-    ForInStatement: this.genForInStmt,
-    WithStatement: this.genWithStmt,
-    ThrowStatement: this.genThrowStmt,
-    TryStatement: this.genTryStmt,
-    ContinueStatement: this.genContStmt,
-    BreakStatement: this.genBreakStmt,
+  var opts = {};
+  if (this.DEBUG) {
+    opts.locations = true;
+  }
+  if (typeof node === 'string') {
+    node = parse(node, opts);
+  }
+  var resp = this._gen(node);
+  addDeclarationsToStore(this._curDeclarations, this._curVarStore);
+  this._curDeclarations = [];
+  return resp;
+};
+
+Environment.prototype._gen = function (node) {
+  var closure = ({
+    BinaryExpression: this._genBinExpr,
+    LogicalExpression: this._genBinExpr,
+    UnaryExpression: this._genUnaryExpr,
+    UpdateExpression: this._genUpdExpr,
+    ObjectExpression: this._genObjExpr,
+    ArrayExpression: this._genArrExpr,
+    CallExpression: this._genCallExpr,
+    NewExpression: this._genNewExpr,
+    MemberExpression: this._genMemExpr,
+    ThisExpression: this._genThisExpr,
+    SequenceExpression: this._genSeqExpr,
+    Literal: this._genLit,
+    Identifier: this._genIdent,
+    AssignmentExpression: this._genAssignExpr,
+    FunctionDeclaration: this._genFuncDecl,
+    VariableDeclaration: this._genVarDecl,
+    BlockStatement: this._genProgram,
+    Program: this._genProgram,
+    ExpressionStatement: this._genExprStmt,
+    EmptyStatement: this._genEmptyStmt,
+    ReturnStatement: this._genRetStmt,
+    FunctionExpression: this._genFuncExpr,
+    IfStatement: this._genIfStmt,
+    ConditionalExpression: this._genIfStmt,
+    ForStatement: this._genLoopStmt,
+    WhileStatement: this._genLoopStmt,
+    DoWhileStatement: this._genDoWhileStmt,
+    ForInStatement: this._genForInStmt,
+    WithStatement: this._genWithStmt,
+    ThrowStatement: this._genThrowStmt,
+    TryStatement: this._genTryStmt,
+    ContinueStatement: this._genContStmt,
+    BreakStatement: this._genBreakStmt,
+    SwitchStatement: this._genSwitchStmt,
   }[node.type] || function () {
     console.warn("Not implemented yet: " + node.type);
     return noop;
   }).call(this, node);
+
+  if (this.DEBUG) {
+    return function () {
+      var info = 'closure for ' + node.type + ' called';
+      var line = ((node.loc || {}).start || {}).line;
+      if (line) {
+        info += ' while processing line ' + line;
+      }
+
+      var resp = closure();
+      info += '. Result:';
+      console.log(info, resp);
+      return resp;
+    };
+  }
+  return closure;
 };
 
-Environment.prototype.genBinExpr = function (node) {
-  var cmp = {
-    '==': function (a, b) {return a == b; },
-    '!=': function (a, b) {return a != b; },
-    '===': function (a, b) {return a === b; },
-    '!==': function (a, b) {return a !== b; },
-    '<': function (a, b) {return a < b; },
-    '<=': function (a, b) {return a <= b; },
-    '>': function (a, b) {return a > b; },
-    '>=': function (a, b) {return a >= b; },
-    '<<': function (a, b) {return a << b; },
-    '>>': function (a, b) {return a >> b; },
-    '>>>': function (a, b) {return a >>> b; },
-    '+': function (a, b) {return a + b; },
-    '-': function (a, b) {return a - b; },
-    '*': function (a, b) {return a * b; },
-    '/': function (a, b) {return a / b; },
-    '%': function (a, b) {return a % b; },
-    '|': function (a, b) {return a | b; },
-    '^': function (a, b) {return a ^ b; },
-    '&': function (a, b) {return a & b; },
-    'in': function (a, b) {return a in b; },
-    'instanceof': function (a, b) {return a instanceof b; },
-    // logic expressions
-    '||': function (a, b) {return a || b; },
-    '&&': function (a, b) {return a && b; },
-  }[node.operator];
+Environment.prototype._genBinExpr = function (node) {
+  var a = this._gen(node.left);
+  var b = this._gen(node.right);
 
-  var left = this.gen(node.left);
-  var right = this.gen(node.right);
+  var cmp = {
+    '==': function () {return a() == b(); },
+    '!=': function () {return a() != b(); },
+    '===': function () {return a() === b(); },
+    '!==': function () {return a() !== b(); },
+    '<': function () {return a() < b(); },
+    '<=': function () {return a() <= b(); },
+    '>': function () {return a() > b(); },
+    '>=': function () {return a() >= b(); },
+    '<<': function () {return a() << b(); },
+    '>>': function () {return a() >> b(); },
+    '>>>': function () {return a() >>> b(); },
+    '+': function () {return a() + b(); },
+    '-': function () {return a() - b(); },
+    '*': function () {return a() * b(); },
+    '/': function () {return a() / b(); },
+    '%': function () {return a() % b(); },
+    '|': function () {return a() | b(); },
+    '^': function () {return a() ^ b(); },
+    '&': function () {return a() & b(); },
+    'in': function () {return a() in b(); },
+    'instanceof': function () {return a() instanceof b(); },
+    // logic expressions
+    '||': function () {return a() || b(); },
+    '&&': function () {return a() && b(); },
+  }[node.operator];
   return function () {
-    return cmp(left(), right());
+    return cmp();
   };
 };
 
-Environment.prototype.genUnaryExpr = function (node) {
+Environment.prototype._genUnaryExpr = function (node) {
   var op = {
     '-': function (a) {return -a; },
     '+': function (a) {return +a; },
@@ -145,14 +177,14 @@ Environment.prototype.genUnaryExpr = function (node) {
 //TODO
 //    'delete': function (a) {return delete a; },
   }[node.operator];
-  var argument = this.gen(node.argument);
+  var argument = this._gen(node.argument);
 
   return function () {
     return op(argument());
   };
 };
 
-Environment.prototype.genObjExpr = function (node) {
+Environment.prototype._genObjExpr = function (node) {
   //TODO property.kind: don't assume init when it can also be set/get
   var self = this;
   var items = [];
@@ -162,7 +194,7 @@ Environment.prototype.genObjExpr = function (node) {
     var key = self._objKey(property.key)();
     items.push({
       key: key,
-      getVal: self.gen(property.value)
+      getVal: self._gen(property.value)
     });
   });
   return function () {
@@ -175,7 +207,7 @@ Environment.prototype.genObjExpr = function (node) {
   };
 };
 
-Environment.prototype.genArrExpr = function (node) {
+Environment.prototype._genArrExpr = function (node) {
   var items = node.elements.map(this._boundGen);
   return function () {
     return items.map(execute);
@@ -187,12 +219,12 @@ Environment.prototype._objKey = function (node) {
   if (node.type === 'Identifier') {
     key = node.name;
   } else {
-    key = this.gen(node)();
+    key = this._gen(node)();
   }
   return function () {return key; };
 };
 
-Environment.prototype.genCallExpr = function (node) {
+Environment.prototype._genCallExpr = function (node) {
   var self = this;
 
   var callee;
@@ -204,16 +236,16 @@ Environment.prototype.genCallExpr = function (node) {
       return theObj[name()].bind(theObj);
     };
   } else {
-    callee = self.gen(node.callee);
+    callee = self._gen(node.callee);
   }
-  var args = node.arguments.map(self.gen.bind(self));
+  var args = node.arguments.map(self._gen.bind(self));
   return function () {
     return callee().apply(self._globalObj, args.map(execute));
   };
 };
 
-Environment.prototype.genNewExpr = function (node) {
-  var callee = this.gen(node.callee);
+Environment.prototype._genNewExpr = function (node) {
+  var callee = this._gen(node.callee);
   var args = node.arguments.map(this._boundGen);
   return function () {
     return newWithArgs(callee(), args.map(execute));
@@ -225,8 +257,8 @@ function newWithArgs(Cls, args) {
   return new (Function.prototype.bind.apply(Cls, allArgs))();
 }
 
-Environment.prototype.genMemExpr = function (node) {
-  var obj = this.gen(node.object);
+Environment.prototype._genMemExpr = function (node) {
+  var obj = this._gen(node.object);
   var property = this._memExprProperty(node);
   return function () {
     return obj()[property()];
@@ -234,15 +266,15 @@ Environment.prototype.genMemExpr = function (node) {
 };
 
 Environment.prototype._memExprProperty = function (node) {
-  return node.computed ? this.gen(node.property) : this._objKey(node.property);
+  return node.computed ? this._gen(node.property) : this._objKey(node.property);
 };
 
-Environment.prototype.genThisExpr = function () {
+Environment.prototype._genThisExpr = function () {
   var self = this;
   return function () {return self._curThis; };
 };
 
-Environment.prototype.genSeqExpr = function (node) {
+Environment.prototype._genSeqExpr = function (node) {
   var exprs = node.expressions.map(this._boundGen);
   return function () {
     var result;
@@ -253,7 +285,7 @@ Environment.prototype.genSeqExpr = function (node) {
   };
 };
 
-Environment.prototype.genUpdExpr = function (node) {
+Environment.prototype._genUpdExpr = function (node) {
   var update = {
     '--true': function (obj, name) {return --obj[name]; },
     '--false': function (obj, name) {return obj[name]--; },
@@ -269,9 +301,9 @@ Environment.prototype.genUpdExpr = function (node) {
 
 Environment.prototype._genObj = function (node) {
   if (node.type === 'Identifier') {
-    return this._getScopeVars.bind(this, node.name);
+    return this._getVarStore.bind(this, node.name);
   } else if (node.type === 'MemberExpression') {
-    return this.gen(node.object);
+    return this._gen(node.object);
   } else {
     console.warn("Unknown _genObj() type: " + node.type);
     return noop;
@@ -289,32 +321,32 @@ Environment.prototype._genName = function (node) {
   }
 };
 
-Environment.prototype.genLit = function (node) {
+Environment.prototype._genLit = function (node) {
   return function () {
     return node.value;
   };
 };
 
-Environment.prototype.genIdent = function (node) {
+Environment.prototype._genIdent = function (node) {
   var self = this;
   return function () {
-    return self._getScopeVars(node.name)[node.name];
+    return self._getVarStore(node.name)[node.name];
   };
 };
 
-Environment.prototype._getScopeVars = function (name) {
-  var scope = this._curScope;
+Environment.prototype._getVarStore = function (name) {
+  var store = this._curVarStore;
   do {
-    if (scope.vars.hasOwnProperty(name)) {
-      return scope.vars;
+    if (store.vars.hasOwnProperty(name)) {
+      return store.vars;
     }
-  } while ((scope = scope.parent));
+  } while ((store = store.parent));
 
-  // global scope if no other scope has been found
-  return this._globalObject;
+  // global object as fallback
+  return this._globalObj;
 };
 
-Environment.prototype.genAssignExpr = function (node) {
+Environment.prototype._genAssignExpr = function (node) {
   var setter = {
     '=': function (obj, name, val) {return (obj[name] = val); },
     '+=': function (obj, name, val) {return obj[name] += val; },
@@ -331,44 +363,56 @@ Environment.prototype.genAssignExpr = function (node) {
   }[node.operator];
   var obj = this._genObj(node.left);
   var name = this._genName(node.left);
-  var val = this.gen(node.right);
+  var val = this._gen(node.right);
   return function () {
     return setter(obj(), name(), val());
   };
 };
 
-Environment.prototype.genFuncDecl = function (node) {
-  var self = this;
-  var func = self.genFuncExpr(node);
-  return function () {
-    self._curScope.vars[node.id.name] = func();
-  };
-};
+Environment.prototype._genFuncDecl = function (node) {
+  this._curDeclarations.push(node.id.name);
 
-Environment.prototype.genVarDecl = function (node) {
-  var self = this;
-  var decls = node.declarations.map(function (decl) {
-    return {
-      name: decl.id.name,
-      getVal: decl.init ? self.gen(decl.init) : noop,
-    };
+  node.type = 'FunctionExpression';
+  return this._gen({
+    type: 'AssignmentExpression',
+    operator: '=',
+    left: node.id,
+    right: node
   });
-
-  return function () {
-    decls.forEach(function (decl) {
-      self._curScope.vars[decl.name] = decl.getVal();
-    });
-  };
 };
 
-Environment.prototype.genFuncExpr = function (node) {
+Environment.prototype._genVarDecl = function (node) {
+  var assignments = [];
+  for (var i = 0; i < node.declarations.length; i++) {
+    var decl = node.declarations[i];
+    this._curDeclarations.push(decl.id.name);
+    if (decl.init) {
+      assignments.push({
+        type: 'AssignmentExpression',
+        operator: '=',
+        left: decl.id,
+        right: decl.init
+      });
+    }
+  }
+  return this._gen({
+    type: 'BlockStatement',
+    body: assignments
+  });
+};
+
+Environment.prototype._genFuncExpr = function (node) {
   var self = this;
-  self._curScope = createScope({}, self._curScope);
-  var body = self.gen(node.body);
-  // reset scope
-  var scope = self._curScope;
-  self._curScope = scope.parent;
+
+  var oldDeclarations = self._curDeclarations;
+  self._curDeclarations = [];
+  var body = self._gen(node.body);
+  var declarations = self._curDeclarations;
+  self._curDeclarations = oldDeclarations;
+
+  // reset var store
   return function () {
+    var parent = self._curVarStore;
     return function () {
       // build arguments object
       var args = new Arguments();
@@ -376,16 +420,19 @@ Environment.prototype.genFuncExpr = function (node) {
       for (var i = 0; i < arguments.length; i ++) {
         args[i] = arguments[i];
       }
-      scope.vars.arguments = args;
-      // add function args to scope
+      var varStore = createVarStore(parent);
+      addDeclarationsToStore(declarations, varStore);
+
+      varStore.vars.arguments = args;
+      // add function args to var store
       node.params.forEach(function (param, i) {
-        scope.vars[param.name] = args[i];
+        varStore.vars[param.name] = args[i];
       });
 
       // switch interpreter 'stack'
-      var oldScope = self._curScope;
+      var oldStore = self._curVarStore;
       var oldThis = self._curThis;
-      self._curScope = scope;
+      self._curVarStore = varStore;
       self._curThis = this;
 
       // run function body
@@ -393,7 +440,7 @@ Environment.prototype.genFuncExpr = function (node) {
 
       // switch 'stack' back
       self._curThis = oldThis;
-      self._curScope = oldScope;
+      self._curVarStore = oldStore;
 
       if (result instanceof Return) {
         return result.value;
@@ -402,10 +449,18 @@ Environment.prototype.genFuncExpr = function (node) {
   };
 };
 
-Environment.prototype.genProgram = function (node) {
+function addDeclarationsToStore(declarations, varStore) {
+  for (var i = 0; i < declarations.length; i++) {
+    if (!varStore.vars.hasOwnProperty(declarations[i])) {
+      varStore.vars[declarations[i]] = undefined;
+    }
+  }
+}
+
+Environment.prototype._genProgram = function (node) {
   var self = this;
   var stmtClosures = node.body.map(function (stmt) {
-    return self.gen(stmt);
+    return self._gen(stmt);
   });
   return function () {
     var result;
@@ -420,38 +475,38 @@ Environment.prototype.genProgram = function (node) {
   };
 };
 
-Environment.prototype.genExprStmt = function (node) {
-  return this.gen(node.expression);
+Environment.prototype._genExprStmt = function (node) {
+  return this._gen(node.expression);
 };
 
-Environment.prototype.genEmptyStmt = function () {
+Environment.prototype._genEmptyStmt = function () {
   return noop;
 };
 
-Environment.prototype.genRetStmt = function (node) {
-  var arg = this.gen(node.argument);
+Environment.prototype._genRetStmt = function (node) {
+  var arg = node.argument ? this._gen(node.argument) : noop;
   return function () {
     return new Return(arg());
   };
 };
 
-Environment.prototype.genIfStmt = function (node) {
-  var test = this.gen(node.test);
-  var consequent = this.gen(node.consequent);
-  var alternate = node.alternate ? this.gen(node.alternate) : noop;
+Environment.prototype._genIfStmt = function (node) {
+  var test = this._gen(node.test);
+  var consequent = this._gen(node.consequent);
+  var alternate = node.alternate ? this._gen(node.alternate) : noop;
 
   return function () {
     return test() ? consequent() : alternate();
   };
 };
 
-Environment.prototype.genLoopStmt = function (node, body) {
-  var init = node.init ? this.gen(node.init) : noop;
-  var test = node.test ? this.gen(node.test) : function () {
+Environment.prototype._genLoopStmt = function (node, body) {
+  var init = node.init ? this._gen(node.init) : noop;
+  var test = node.test ? this._gen(node.test) : function () {
     return true;
   };
-  var update = node.update ? this.gen(node.update) : noop;
-  body = body || this.gen(node.body);
+  var update = node.update ? this._gen(node.update) : noop;
+  body = body || this._gen(node.body);
 
   return function () {
     var resp;
@@ -472,9 +527,9 @@ Environment.prototype.genLoopStmt = function (node, body) {
   };
 };
 
-Environment.prototype.genDoWhileStmt = function (node) {
-  var body = this.gen(node.body);
-  var loop = this.genLoopStmt(node, body);
+Environment.prototype._genDoWhileStmt = function (node) {
+  var body = this._gen(node.body);
+  var loop = this._genLoopStmt(node, body);
 
   return function () {
     body();
@@ -482,20 +537,21 @@ Environment.prototype.genDoWhileStmt = function (node) {
   };
 };
 
-Environment.prototype.genForInStmt = function (node) {
-/*  var self = this;
-  var left = self.gen(node.left);
-  var right = self.gen(node.right);
-  var body = self.gen(node.body);
+Environment.prototype._genForInStmt = function (node) {
+  var self = this;
+  var right = self._gen(node.right);
+  var body = self._gen(node.body);
 
   var left = node.left;
   if (left.type === 'VariableDeclaration') {
+    self._curDeclarations.push(left.declarations[0].id.name);
     left = left.declarations[0].id;
   }
   return function () {
     var resp;
-    for (x in right()) {
-      self.genAssignExpr({
+    for (var x in right()) {
+      self._genAssignExpr({
+        operator: '=',
         left: left,
         right: {
           type: 'Literal',
@@ -505,45 +561,40 @@ Environment.prototype.genForInStmt = function (node) {
       resp = body();
     }
     return resp;
-  };*/
-  return noop;
+  };
 };
 
-Environment.prototype.genWithStmt = function (node) {
+Environment.prototype._genWithStmt = function (node) {
   var self = this;
-  var obj = self.gen(node.object);
-  var body = self.gen(node.body);
+  var obj = self._gen(node.object);
+  var body = self._gen(node.body);
   return function () {
-    var prevScope = self._curScope;
-    self._curScope = createScope(obj(), prevScope);
+    self._curVarStore = createVarStore(self._curVarStore, obj());
     var result = body();
-    self._curScope = prevScope;
+    self._curVarStore = self._curVarStore.parent;
     return result;
   };
 };
 
-Environment.prototype.genThrowStmt = function (node) {
-  var arg = this.gen(node.argument);
+Environment.prototype._genThrowStmt = function (node) {
+  var arg = this._gen(node.argument);
   return function () {
     throw arg();
   };
 };
 
-Environment.prototype.genTryStmt = function (node) {
-  var block = this.gen(node.block);
+Environment.prototype._genTryStmt = function (node) {
+  var block = this._gen(node.block);
   var handler = this._genCatchHandler(node.handler);
-  var finalizer = node.finalizer ? this.gen(node.finalizer) : null;
+  var finalizer = node.finalizer ? this._gen(node.finalizer) : function (x) {
+    return x;
+  };
 
   return function () {
     try {
-      block();
+      return finalizer(block());
     } catch (err) {
-      var resp = handler(err);
-      if (!finalizer) {
-        return resp;
-      } 
-    } finally {
-      return finalizer();
+      return finalizer(handler(err));
     }
   };
 };
@@ -553,37 +604,77 @@ Environment.prototype._genCatchHandler = function (node) {
     return noop;
   }
   var self = this;
-  var body = self.gen(node.body);
+  var body = self._gen(node.body);
   return function (err) {
-    var old = self._curScope[node.param.name];
-    self._curScope[node.param.name] = err;
+    var old = self._curVarStore.vars[node.param.name];
+    self._curVarStore.vars[node.param.name] = err;
     var resp = body();
-    self._curScope[node.param.name] = old;
+    self._curVarStore.vars[node.param.name] = old;
 
     return resp;
   };
 };
 
-Environment.prototype.genContStmt = function () {
+Environment.prototype._genContStmt = function () {
   return function () {return Continue; };
 };
 
-Environment.prototype.genBreakStmt = function () {
+Environment.prototype._genBreakStmt = function () {
   return function () {return Break; };
 };
 
+Environment.prototype._genSwitchStmt = function (node) {
+  var self = this;
+
+  var discriminant = self._gen(node.discriminant);
+  var cases = node.cases.map(function (curCase) {
+    return {
+      test: curCase.test ? self._gen(curCase.test) : null,
+      code: self._genProgram({body: curCase.consequent})
+    };
+  });
+
+  return function () {
+    var foundMatch = false;
+    var discriminantVal = discriminant();
+    var resp, defaultCase;
+
+    for (var i = 0; i < cases.length; i++) {
+      var curCase = cases[i];
+      if (!foundMatch) {
+        if (!curCase.test) {
+          defaultCase = curCase;
+          continue;
+        }
+        if (discriminantVal !== curCase.test()) {
+          continue;
+        }
+        foundMatch = true;
+      }
+      // foundMatch is guaranteed to be true here
+      var newResp = curCase.code();
+      if (newResp === Break) {
+        return resp;
+      }
+      resp = newResp;
+      if (resp === Continue || resp instanceof Return) {
+        return resp;
+      }
+    }
+    if (!foundMatch && defaultCase) {
+      return defaultCase.code();
+    }
+  };
+};
+
 exports.Environment = Environment;
-var evaling = false;
 exports.evaluate = function (code) {
-  var ast = parse(code);
-  evaling = true;
   var env = new Environment(global);
-  var resp = env.gen(ast)();
-  evaling = false;
+  var resp = env.gen(code)();
   return resp;
 };
 
-console.log(exports.evaluate("2 + 1"));
+//console.log(exports.evaluate("1 + 1"));
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
 },{"acorn/acorn_csp":2}],2:[function(require,module,exports){

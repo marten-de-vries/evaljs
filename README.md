@@ -83,7 +83,7 @@ API
 Size?
 -----
 
-15.4kB min+gzip
+16.3kB min+gzip
 
 License?
 --------

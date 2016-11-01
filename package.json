@@ -9,7 +9,7 @@
   },
   "devDependencies": {
     "browserify": "^8.1.1",
-    "esprima": "^1.2.3",
+    "esprima": "^3.1.1",
     "is-optimizable": "^1.1.0",
     "jshint": "^2.5.11",
     "uglify-js": "^2.4.16"

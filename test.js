@@ -2,7 +2,7 @@
 
 var evaljs = require('./index');
 var fs = require('fs');
-var parse = require('acorn/acorn_csp').parse;
+var parse = require('acorn').parse;
 
 // basic
 console.log(evaljs.evaluate('1 + 1'));
@@ -24,7 +24,7 @@ var env = new evaljs.Environment([envGlobal, modLocal]);
 env.gen(code)();
 
 // acorn.js
-var code = fs.readFileSync(require.resolve('acorn/acorn_csp'), {encoding: 'UTF-8'});
+var code = fs.readFileSync(require.resolve('acorn'), {encoding: 'UTF-8'});
 var env = new evaljs.Environment([global, {exports: {}, module: {}}]);
 //env.DEBUG = true;
 
@@ -32,7 +32,7 @@ var env = new evaljs.Environment([global, {exports: {}, module: {}}]);
 env.gen(code)();
 
 // parse file
-var parsed = env.gen('exports.parse("1 + 1")')();
+var parsed = env.gen('exports.parse("1+1")')();
 // for bonus points: run the parsed expression
 console.log(env.gen(parsed)());
 

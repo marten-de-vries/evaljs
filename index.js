@@ -6,7 +6,7 @@
 //-> TESTS
 //-> BENCHMARKS
 
-var parse = require('acorn/acorn_csp').parse;
+var parse = require('acorn').parse;
 
 function noop() {}
 

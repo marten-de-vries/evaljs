@@ -5,7 +5,7 @@
   "main": "index.js",
   "bin": "./bin/evaljs",
   "dependencies": {
-    "acorn": "^4.0.3"
+    "acorn": "^4.0.4"
   },
   "devDependencies": {
     "browserify": "^13.1.1",

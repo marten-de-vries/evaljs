@@ -2,7 +2,7 @@
 
 var repl = require('repl');
 var evaljs = require('../');
-var parse = require('acorn/acorn_csp').parse;
+var parse = require('acorn').parse;
 var fs = require('fs');
 var env = new evaljs.Environment([global, {require: require}]);
 

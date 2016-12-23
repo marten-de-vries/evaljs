@@ -110,4 +110,4 @@ Who?
 **eval.js** is written by Marten de Vries. Maintained by Jason Huggins.
 Credits for the original idea go to [closure-interpreter][].
 
-[closure-interpreter]: https://www.npmjs.com/package/closure-interpreter
+[closure-interpreter]: https://github.com/int3/closure-interpreter

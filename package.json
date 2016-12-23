@@ -1,6 +1,6 @@
 {
   "name": "evaljs",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A JavaScript interpreter written in JavaScript",
   "main": "index.js",
   "bin": "./bin/evaljs",

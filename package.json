@@ -36,6 +36,12 @@
     "type": "git",
     "url": "https://github.com/marten-de-vries/evaljs.git"
   },
+  "license": "ISC",
   "author": "Marten de Vries",
-  "license": "ISC"
+  "contributors": [
+      { "name" : "Jason Huggins",
+        "email" : "jrhuggins@gmail.com",
+        "url" : "http://www.hugs.io/"
+      }
+  ]
 }

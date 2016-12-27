@@ -1,25 +1,26 @@
 {
   "name": "evaljs",
-  "version": "1.0.3",
+  "version": "2.0.0",
   "description": "A JavaScript interpreter written in JavaScript",
   "main": "index.js",
   "bin": "./bin/evaljs",
   "dependencies": {
-    "acorn": "^4.0.4"
+    "acorn": "^4.0.4",
+    "require-from-string": "^1.2.1"
   },
   "devDependencies": {
     "browserify": "^13.1.1",
     "esprima": "^3.1.2",
-    "is-optimizable": "^1.1.1",
     "jshint": "^2.9.4",
+    "regenerator": "^0.9.5",
     "uglify-js": "^2.7.5"
   },
   "scripts": {
-    "test": "npm run optimized && npm run jshint && node test.js",
-    "optimized": "./node_modules/.bin/is-optimizable index.js test.js",
+    "test": "npm run compile && npm run jshint && node test.js",
+    "compile": "./node_modules/regenerator/bin/regenerator --include-runtime ./index.js > ./index-compiled.js",
     "jshint": "./node_modules/.bin/jshint index.js test.js theTest.js",
     "build": "mkdir -p dist && npm run build-js && npm run minify",
-    "build-js": "./node_modules/.bin/browserify index.js -S evaljs -o dist/eval.js",
+    "build-js": "./node_modules/.bin/browserify -r acorn -r ./index-compiled.js:evaljs -o dist/eval.js",
     "minify": "./node_modules/.bin/uglifyjs -mc -o dist/eval.min.js dist/eval.js"
   },
   "keywords": [
@@ -39,9 +40,10 @@
   "license": "ISC",
   "author": "Marten de Vries",
   "contributors": [
-      { "name" : "Jason Huggins",
-        "email" : "jrhuggins@gmail.com",
-        "url" : "http://www.hugs.io/"
-      }
+    {
+      "name": "Jason Huggins",
+      "email": "jrhuggins@gmail.com",
+      "url": "http://www.hugs.io/"
+    }
   ]
 }

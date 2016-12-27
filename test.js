@@ -1,40 +1,61 @@
 "use strict";
 
-var evaljs = require('./index');
 var fs = require('fs');
+var evaljs = require('./index');
 var parse = require('acorn').parse;
+var requireFromString = require('require-from-string');
+
+function run(iter){
+  var result = iter.next();
+  while(!result.done) {
+    result = iter.next();
+  }
+  return result.value;
+}
 
 // basic
 console.log(evaljs.evaluate('1 + 1'));
 
 // theTest.js
 var code = fs.readFileSync('theTest.js', {encoding: 'UTF-8'});
-
+var parsedCode = parse(code, {'locations': true});
 var env = new evaljs.Environment([{console: console}]);
-env.gen(parse(code))();
+var iter1 = env.gen(parsedCode)();
+run(iter1);
 
 // index.js
-var code = fs.readFileSync('index.js', {encoding: 'UTF-8'});
-
-var envGlobal = {console: console, Array: Array, Error: Error, Object: Object};
+var code = fs.readFileSync('index-compiled.js', {encoding: 'UTF-8'});
+var script = "var evaljs = requireFromString(code);" +
+             "console.log(evaljs.evaluate('30 + 4'));";
+var envGlobal = {
+  code: code,
+  console: console
+};
 envGlobal.global = global;
-var modLocal = {require: require, exports: {}};
-
+var modLocal = {
+  requireFromString: requireFromString,
+};
 var env = new evaljs.Environment([envGlobal, modLocal]);
-env.gen(code)();
+var iter2 = env.gen(script)();
+run(iter2);
 
 // acorn.js
 var code = fs.readFileSync(require.resolve('acorn'), {encoding: 'UTF-8'});
-var env = new evaljs.Environment([global, {exports: {}, module: {}}]);
-//env.DEBUG = true;
+var envGlobal = { code: code };
+var envModules = { requireFromString: requireFromString };
+var env = new evaljs.Environment([envGlobal, envModules]);
 
 // load library
-env.gen(code)();
+var iter3 = env.gen("var acorn = requireFromString(code);")();
+run(iter3);
 
 // parse file
-var parsed = env.gen('exports.parse("1+1")')();
+var iter4 = env.gen("acorn.parse('1 + 1');")();
+var parsed = run(iter4);
+
 // for bonus points: run the parsed expression
-console.log(env.gen(parsed)());
+var iter5 = env.gen(parsed)();
+console.log(run(iter5));
 
 // using esprima
 var esprima = require('esprima');

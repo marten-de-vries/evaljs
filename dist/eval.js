@@ -1,687 +1,1112 @@
-(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-(function (global){
-"use strict";
+require=(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-//TODO:
-//- LabeledStatement -> including use in break/continue
-//- nicer error handling?
-//-> TESTS
-//-> BENCHMARKS
+function EventEmitter() {
+  this._events = this._events || {};
+  this._maxListeners = this._maxListeners || undefined;
+}
+module.exports = EventEmitter;
 
-var parse = require('acorn').parse;
+// Backwards-compat with node 0.10.x
+EventEmitter.EventEmitter = EventEmitter;
+
+EventEmitter.prototype._events = undefined;
+EventEmitter.prototype._maxListeners = undefined;
+
+// By default EventEmitters will print a warning if more than 10 listeners are
+// added to it. This is a useful default which helps finding memory leaks.
+EventEmitter.defaultMaxListeners = 10;
+
+// Obviously not all Emitters should be limited to 10. This function allows
+// that to be increased. Set to zero for unlimited.
+EventEmitter.prototype.setMaxListeners = function(n) {
+  if (!isNumber(n) || n < 0 || isNaN(n))
+    throw TypeError('n must be a positive number');
+  this._maxListeners = n;
+  return this;
+};
+
+EventEmitter.prototype.emit = function(type) {
+  var er, handler, len, args, i, listeners;
+
+  if (!this._events)
+    this._events = {};
+
+  // If there is no 'error' event listener then throw.
+  if (type === 'error') {
+    if (!this._events.error ||
+        (isObject(this._events.error) && !this._events.error.length)) {
+      er = arguments[1];
+      if (er instanceof Error) {
+        throw er; // Unhandled 'error' event
+      } else {
+        // At least give some kind of context to the user
+        var err = new Error('Uncaught, unspecified "error" event. (' + er + ')');
+        err.context = er;
+        throw err;
+      }
+    }
+  }
+
+  handler = this._events[type];
+
+  if (isUndefined(handler))
+    return false;
+
+  if (isFunction(handler)) {
+    switch (arguments.length) {
+      // fast cases
+      case 1:
+        handler.call(this);
+        break;
+      case 2:
+        handler.call(this, arguments[1]);
+        break;
+      case 3:
+        handler.call(this, arguments[1], arguments[2]);
+        break;
+      // slower
+      default:
+        args = Array.prototype.slice.call(arguments, 1);
+        handler.apply(this, args);
+    }
+  } else if (isObject(handler)) {
+    args = Array.prototype.slice.call(arguments, 1);
+    listeners = handler.slice();
+    len = listeners.length;
+    for (i = 0; i < len; i++)
+      listeners[i].apply(this, args);
+  }
+
+  return true;
+};
+
+EventEmitter.prototype.addListener = function(type, listener) {
+  var m;
+
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  if (!this._events)
+    this._events = {};
+
+  // To avoid recursion in the case that type === "newListener"! Before
+  // adding it to the listeners, first emit "newListener".
+  if (this._events.newListener)
+    this.emit('newListener', type,
+              isFunction(listener.listener) ?
+              listener.listener : listener);
+
+  if (!this._events[type])
+    // Optimize the case of one listener. Don't need the extra array object.
+    this._events[type] = listener;
+  else if (isObject(this._events[type]))
+    // If we've already got an array, just append.
+    this._events[type].push(listener);
+  else
+    // Adding the second element, need to change to array.
+    this._events[type] = [this._events[type], listener];
+
+  // Check for listener leak
+  if (isObject(this._events[type]) && !this._events[type].warned) {
+    if (!isUndefined(this._maxListeners)) {
+      m = this._maxListeners;
+    } else {
+      m = EventEmitter.defaultMaxListeners;
+    }
+
+    if (m && m > 0 && this._events[type].length > m) {
+      this._events[type].warned = true;
+      console.error('(node) warning: possible EventEmitter memory ' +
+                    'leak detected. %d listeners added. ' +
+                    'Use emitter.setMaxListeners() to increase limit.',
+                    this._events[type].length);
+      if (typeof console.trace === 'function') {
+        // not supported in IE 10
+        console.trace();
+      }
+    }
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.on = EventEmitter.prototype.addListener;
+
+EventEmitter.prototype.once = function(type, listener) {
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  var fired = false;
+
+  function g() {
+    this.removeListener(type, g);
+
+    if (!fired) {
+      fired = true;
+      listener.apply(this, arguments);
+    }
+  }
+
+  g.listener = listener;
+  this.on(type, g);
+
+  return this;
+};
+
+// emits a 'removeListener' event iff the listener was removed
+EventEmitter.prototype.removeListener = function(type, listener) {
+  var list, position, length, i;
+
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  if (!this._events || !this._events[type])
+    return this;
+
+  list = this._events[type];
+  length = list.length;
+  position = -1;
+
+  if (list === listener ||
+      (isFunction(list.listener) && list.listener === listener)) {
+    delete this._events[type];
+    if (this._events.removeListener)
+      this.emit('removeListener', type, listener);
+
+  } else if (isObject(list)) {
+    for (i = length; i-- > 0;) {
+      if (list[i] === listener ||
+          (list[i].listener && list[i].listener === listener)) {
+        position = i;
+        break;
+      }
+    }
+
+    if (position < 0)
+      return this;
+
+    if (list.length === 1) {
+      list.length = 0;
+      delete this._events[type];
+    } else {
+      list.splice(position, 1);
+    }
+
+    if (this._events.removeListener)
+      this.emit('removeListener', type, listener);
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.removeAllListeners = function(type) {
+  var key, listeners;
+
+  if (!this._events)
+    return this;
+
+  // not listening for removeListener, no need to emit
+  if (!this._events.removeListener) {
+    if (arguments.length === 0)
+      this._events = {};
+    else if (this._events[type])
+      delete this._events[type];
+    return this;
+  }
+
+  // emit removeListener for all listeners on all events
+  if (arguments.length === 0) {
+    for (key in this._events) {
+      if (key === 'removeListener') continue;
+      this.removeAllListeners(key);
+    }
+    this.removeAllListeners('removeListener');
+    this._events = {};
+    return this;
+  }
+
+  listeners = this._events[type];
+
+  if (isFunction(listeners)) {
+    this.removeListener(type, listeners);
+  } else if (listeners) {
+    // LIFO order
+    while (listeners.length)
+      this.removeListener(type, listeners[listeners.length - 1]);
+  }
+  delete this._events[type];
+
+  return this;
+};
+
+EventEmitter.prototype.listeners = function(type) {
+  var ret;
+  if (!this._events || !this._events[type])
+    ret = [];
+  else if (isFunction(this._events[type]))
+    ret = [this._events[type]];
+  else
+    ret = this._events[type].slice();
+  return ret;
+};
+
+EventEmitter.prototype.listenerCount = function(type) {
+  if (this._events) {
+    var evlistener = this._events[type];
+
+    if (isFunction(evlistener))
+      return 1;
+    else if (evlistener)
+      return evlistener.length;
+  }
+  return 0;
+};
+
+EventEmitter.listenerCount = function(emitter, type) {
+  return emitter.listenerCount(type);
+};
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+
+},{}],2:[function(require,module,exports){
+// shim for using process in browser
+var process = module.exports = {};
+
+// cached from whatever global is present so that test runners that stub it
+// don't break things.  But we need to wrap it in a try catch in case it is
+// wrapped in strict mode code which doesn't define any globals.  It's inside a
+// function because try/catches deoptimize in certain engines.
+
+var cachedSetTimeout;
+var cachedClearTimeout;
+
+function defaultSetTimout() {
+    throw new Error('setTimeout has not been defined');
+}
+function defaultClearTimeout () {
+    throw new Error('clearTimeout has not been defined');
+}
+(function () {
+    try {
+        if (typeof setTimeout === 'function') {
+            cachedSetTimeout = setTimeout;
+        } else {
+            cachedSetTimeout = defaultSetTimout;
+        }
+    } catch (e) {
+        cachedSetTimeout = defaultSetTimout;
+    }
+    try {
+        if (typeof clearTimeout === 'function') {
+            cachedClearTimeout = clearTimeout;
+        } else {
+            cachedClearTimeout = defaultClearTimeout;
+        }
+    } catch (e) {
+        cachedClearTimeout = defaultClearTimeout;
+    }
+} ())
+function runTimeout(fun) {
+    if (cachedSetTimeout === setTimeout) {
+        //normal enviroments in sane situations
+        return setTimeout(fun, 0);
+    }
+    // if setTimeout wasn't available but was latter defined
+    if ((cachedSetTimeout === defaultSetTimout || !cachedSetTimeout) && setTimeout) {
+        cachedSetTimeout = setTimeout;
+        return setTimeout(fun, 0);
+    }
+    try {
+        // when when somebody has screwed with setTimeout but no I.E. maddness
+        return cachedSetTimeout(fun, 0);
+    } catch(e){
+        try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't trust the global object when called normally
+            return cachedSetTimeout.call(null, fun, 0);
+        } catch(e){
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error
+            return cachedSetTimeout.call(this, fun, 0);
+        }
+    }
+
+
+}
+function runClearTimeout(marker) {
+    if (cachedClearTimeout === clearTimeout) {
+        //normal enviroments in sane situations
+        return clearTimeout(marker);
+    }
+    // if clearTimeout wasn't available but was latter defined
+    if ((cachedClearTimeout === defaultClearTimeout || !cachedClearTimeout) && clearTimeout) {
+        cachedClearTimeout = clearTimeout;
+        return clearTimeout(marker);
+    }
+    try {
+        // when when somebody has screwed with setTimeout but no I.E. maddness
+        return cachedClearTimeout(marker);
+    } catch (e){
+        try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't  trust the global object when called normally
+            return cachedClearTimeout.call(null, marker);
+        } catch (e){
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error.
+            // Some versions of I.E. have different rules for clearTimeout vs setTimeout
+            return cachedClearTimeout.call(this, marker);
+        }
+    }
+
+
+
+}
+var queue = [];
+var draining = false;
+var currentQueue;
+var queueIndex = -1;
+
+function cleanUpNextTick() {
+    if (!draining || !currentQueue) {
+        return;
+    }
+    draining = false;
+    if (currentQueue.length) {
+        queue = currentQueue.concat(queue);
+    } else {
+        queueIndex = -1;
+    }
+    if (queue.length) {
+        drainQueue();
+    }
+}
+
+function drainQueue() {
+    if (draining) {
+        return;
+    }
+    var timeout = runTimeout(cleanUpNextTick);
+    draining = true;
+
+    var len = queue.length;
+    while(len) {
+        currentQueue = queue;
+        queue = [];
+        while (++queueIndex < len) {
+            if (currentQueue) {
+                currentQueue[queueIndex].run();
+            }
+        }
+        queueIndex = -1;
+        len = queue.length;
+    }
+    currentQueue = null;
+    draining = false;
+    runClearTimeout(timeout);
+}
+
+process.nextTick = function (fun) {
+    var args = new Array(arguments.length - 1);
+    if (arguments.length > 1) {
+        for (var i = 1; i < arguments.length; i++) {
+            args[i - 1] = arguments[i];
+        }
+    }
+    queue.push(new Item(fun, args));
+    if (queue.length === 1 && !draining) {
+        runTimeout(drainQueue);
+    }
+};
+
+// v8 likes predictible objects
+function Item(fun, array) {
+    this.fun = fun;
+    this.array = array;
+}
+Item.prototype.run = function () {
+    this.fun.apply(null, this.array);
+};
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+process.version = ''; // empty string to avoid regexp issues
+process.versions = {};
 
 function noop() {}
 
-function execute(func) {
-  return func();
-}
+process.on = noop;
+process.addListener = noop;
+process.once = noop;
+process.off = noop;
+process.removeListener = noop;
+process.removeAllListeners = noop;
+process.emit = noop;
 
-function Arguments() {
-  //TODO: add es3 'arguments.callee'?
-}
-
-Arguments.prototype.toString = function () {
-  return '[object Arguments]';
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
 };
 
-function Return(val) {
-  this.value = val;
-}
-
-// need something unique to compare a against.
-var Break = {};
-var Continue = {};
-
-function Environment(globalObjects) {
-  if (!Array.isArray(globalObjects)) {
-    globalObjects = [globalObjects];
-  }
-  var parent;
-  globalObjects.forEach(function (vars) {
-    parent = createVarStore(parent, vars);
-  });
-  // the topmost store is our current store
-  this._curVarStore = parent;
-  this._curDeclarations = {};
-  this._globalObj = globalObjects[0];
-  this._curThis = this._globalObj;
-
-  this._boundGen = this._gen.bind(this);
-
-  this.DEBUG = false;
-}
-
-function createVarStore(parent, vars) {
-  vars = vars || {};
-  return {
-    parent: parent,
-    vars: vars
-  };
-}
-
-Environment.prototype.gen = function (node) {
-  var opts = {};
-  if (this.DEBUG) {
-    opts.locations = true;
-  }
-  if (typeof node === 'string') {
-    node = parse(node, opts);
-  }
-  var resp = this._gen(node);
-  addDeclarationsToStore(this._curDeclarations, this._curVarStore);
-  this._curDeclarations = {};
-  return resp;
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
 };
+process.umask = function() { return 0; };
 
-Environment.prototype._gen = function (node) {
-  var closure = ({
-    BinaryExpression: this._genBinExpr,
-    LogicalExpression: this._genBinExpr,
-    UnaryExpression: this._genUnaryExpr,
-    UpdateExpression: this._genUpdExpr,
-    ObjectExpression: this._genObjExpr,
-    ArrayExpression: this._genArrExpr,
-    CallExpression: this._genCallExpr,
-    NewExpression: this._genNewExpr,
-    MemberExpression: this._genMemExpr,
-    ThisExpression: this._genThisExpr,
-    SequenceExpression: this._genSeqExpr,
-    Literal: this._genLit,
-    Identifier: this._genIdent,
-    AssignmentExpression: this._genAssignExpr,
-    FunctionDeclaration: this._genFuncDecl,
-    VariableDeclaration: this._genVarDecl,
-    BlockStatement: this._genProgram,
-    Program: this._genProgram,
-    ExpressionStatement: this._genExprStmt,
-    EmptyStatement: this._genEmptyStmt,
-    ReturnStatement: this._genRetStmt,
-    FunctionExpression: this._genFuncExpr,
-    IfStatement: this._genIfStmt,
-    ConditionalExpression: this._genIfStmt,
-    ForStatement: this._genLoopStmt,
-    WhileStatement: this._genLoopStmt,
-    DoWhileStatement: this._genDoWhileStmt,
-    ForInStatement: this._genForInStmt,
-    WithStatement: this._genWithStmt,
-    ThrowStatement: this._genThrowStmt,
-    TryStatement: this._genTryStmt,
-    ContinueStatement: this._genContStmt,
-    BreakStatement: this._genBreakStmt,
-    SwitchStatement: this._genSwitchStmt,
-  }[node.type] || function () {
-    console.warn("Not implemented yet: " + node.type);
-    return noop;
-  }).call(this, node);
-
-  if (this.DEBUG) {
-    return function () {
-      var info = 'closure for ' + node.type + ' called';
-      var line = ((node.loc || {}).start || {}).line;
-      if (line) {
-        info += ' while processing line ' + line;
+},{}],3:[function(require,module,exports){
+if (typeof Object.create === 'function') {
+  // implementation from standard node.js 'util' module
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    ctor.prototype = Object.create(superCtor.prototype, {
+      constructor: {
+        value: ctor,
+        enumerable: false,
+        writable: true,
+        configurable: true
       }
-
-      var resp = closure();
-      info += '. Result:';
-      console.log(info, resp);
-      return resp;
-    };
-  }
-  return closure;
-};
-
-Environment.prototype._genBinExpr = function (node) {
-  var a = this._gen(node.left);
-  var b = this._gen(node.right);
-
-  var cmp = {
-    '==': function () {return a() == b(); },
-    '!=': function () {return a() != b(); },
-    '===': function () {return a() === b(); },
-    '!==': function () {return a() !== b(); },
-    '<': function () {return a() < b(); },
-    '<=': function () {return a() <= b(); },
-    '>': function () {return a() > b(); },
-    '>=': function () {return a() >= b(); },
-    '<<': function () {return a() << b(); },
-    '>>': function () {return a() >> b(); },
-    '>>>': function () {return a() >>> b(); },
-    '+': function () {return a() + b(); },
-    '-': function () {return a() - b(); },
-    '*': function () {return a() * b(); },
-    '/': function () {return a() / b(); },
-    '%': function () {return a() % b(); },
-    '|': function () {return a() | b(); },
-    '^': function () {return a() ^ b(); },
-    '&': function () {return a() & b(); },
-    'in': function () {return a() in b(); },
-    'instanceof': function () {return a() instanceof b(); },
-    // logic expressions
-    '||': function () {return a() || b(); },
-    '&&': function () {return a() && b(); },
-  }[node.operator];
-  return function () {
-    return cmp();
-  };
-};
-
-Environment.prototype._genUnaryExpr = function (node) {
-  if (node.operator === 'delete') {
-    return this._genDelete(node);
-  }
-
-  var a = this._gen(node.argument);
-  var op = {
-    '-': function () {return -a(); },
-    '+': function () {return +a(); },
-    '!': function () {return !a(); },
-    '~': function () {return ~a(); },
-    'typeof': function () {return typeof a(); },
-    'void': function () {return void a(); },
-  }[node.operator];
-
-  return function () {
-    return op();
-  };
-};
-
-Environment.prototype._genDelete = function (node) {
-  var obj = this._genObj(node.argument);
-  var attr = this._genName(node.argument);
-  return function () {
-    return delete obj()[attr()];
-  };
-};
-
-Environment.prototype._genObjExpr = function (node) {
-  //TODO property.kind: don't assume init when it can also be set/get
-  var self = this;
-  var items = [];
-  node.properties.forEach(function (property) {
-    // object expression keys are static so can be calculated
-    // immediately
-    var key = self._objKey(property.key)();
-    items.push({
-      key: key,
-      getVal: self._gen(property.value)
     });
-  });
-  return function () {
-    var result = {};
-
-    items.forEach(function (item) {
-      result[item.key] = item.getVal();
-    });
-    return result;
   };
-};
-
-Environment.prototype._genArrExpr = function (node) {
-  var items = node.elements.map(this._boundGen);
-  return function () {
-    return items.map(execute);
-  };
-};
-
-Environment.prototype._objKey = function (node) {
-  var key;
-  if (node.type === 'Identifier') {
-    key = node.name;
-  } else {
-    key = this._gen(node)();
-  }
-  return function () {return key; };
-};
-
-Environment.prototype._genCallExpr = function (node) {
-  var self = this;
-
-  var callee;
-  if (node.callee.type === 'MemberExpression') {
-    var obj = self._genObj(node.callee);
-    var name = self._genName(node.callee);
-    callee = function () {
-      var theObj = obj();
-      return theObj[name()].bind(theObj);
-    };
-  } else {
-    callee = self._gen(node.callee);
-  }
-  var args = node.arguments.map(self._gen.bind(self));
-  return function () {
-    return callee().apply(self._globalObj, args.map(execute));
-  };
-};
-
-Environment.prototype._genNewExpr = function (node) {
-  var callee = this._gen(node.callee);
-  var args = node.arguments.map(this._boundGen);
-  return function () {
-    return newWithArgs(callee(), args.map(execute));
-  };
-};
-
-function newWithArgs(Cls, args) {
-  var allArgs = [Cls].concat(args);
-  return new (Function.prototype.bind.apply(Cls, allArgs))();
-}
-
-Environment.prototype._genMemExpr = function (node) {
-  var obj = this._gen(node.object);
-  var property = this._memExprProperty(node);
-  return function () {
-    return obj()[property()];
-  };
-};
-
-Environment.prototype._memExprProperty = function (node) {
-  return node.computed ? this._gen(node.property) : this._objKey(node.property);
-};
-
-Environment.prototype._genThisExpr = function () {
-  var self = this;
-  return function () {return self._curThis; };
-};
-
-Environment.prototype._genSeqExpr = function (node) {
-  var exprs = node.expressions.map(this._boundGen);
-  return function () {
-    var result;
-    exprs.forEach(function (expr) {
-      result = expr();
-    });
-    return result;
-  };
-};
-
-Environment.prototype._genUpdExpr = function (node) {
-  var update = {
-    '--true': function (obj, name) {return --obj[name]; },
-    '--false': function (obj, name) {return obj[name]--; },
-    '++true': function (obj, name) {return ++obj[name]; },
-    '++false': function (obj, name) {return obj[name]++; },
-  }[node.operator + node.prefix];
-  var obj = this._genObj(node.argument);
-  var name = this._genName(node.argument);
-  return function () {
-    return update(obj(), name());
-  };
-};
-
-Environment.prototype._genObj = function (node) {
-  if (node.type === 'Identifier') {
-    return this._getVarStore.bind(this, node.name);
-  } else if (node.type === 'MemberExpression') {
-    return this._gen(node.object);
-  } else {
-    console.warn("Unknown _genObj() type: " + node.type);
-    return noop;
-  }
-};
-
-Environment.prototype._genName = function (node) {
-  if (node.type === 'Identifier') {
-    return function () {return node.name; };
-  } else if (node.type === 'MemberExpression') {
-    return this._memExprProperty(node);
-  } else {
-    console.warn("Unknown _genName() type: " + node.type);
-    return noop;
-  }
-};
-
-Environment.prototype._genLit = function (node) {
-  return function () {
-    return node.value;
-  };
-};
-
-Environment.prototype._genIdent = function (node) {
-  var self = this;
-  return function () {
-    return self._getVarStore(node.name)[node.name];
-  };
-};
-
-Environment.prototype._getVarStore = function (name) {
-  var store = this._curVarStore;
-  do {
-    if (store.vars.hasOwnProperty(name)) {
-      return store.vars;
-    }
-  } while ((store = store.parent));
-
-  // global object as fallback
-  return this._globalObj;
-};
-
-Environment.prototype._genAssignExpr = function (node) {
-  var setter = {
-    '=': function (obj, name, val) {return (obj[name] = val); },
-    '+=': function (obj, name, val) {return obj[name] += val; },
-    '-=': function (obj, name, val) {return obj[name] -= val; },
-    '*=': function (obj, name, val) {return obj[name] *= val; },
-    '/=': function (obj, name, val) {return obj[name] /= val; },
-    '%=': function (obj, name, val) {return obj[name] %= val; },
-    '<<=': function (obj, name, val) {return obj[name] <<= val; },
-    '>>=': function (obj, name, val) {return obj[name] >>= val; },
-    '>>>=': function (obj, name, val) {return obj[name] >>>= val; },
-    '|=': function (obj, name, val) {return obj[name] |= val; },
-    '^=': function (obj, name, val) {return obj[name] ^= val; },
-    '&=': function (obj, name, val) {return obj[name] &= val; },
-  }[node.operator];
-  var obj = this._genObj(node.left);
-  var name = this._genName(node.left);
-  var val = this._gen(node.right);
-  return function () {
-    return setter(obj(), name(), val());
-  };
-};
-
-Environment.prototype._genFuncDecl = function (node) {
-  this._curDeclarations[node.id.name] = this._genFuncExpr(node);
-
-  return noop;
-};
-
-Environment.prototype._genVarDecl = function (node) {
-  var assignments = [];
-  for (var i = 0; i < node.declarations.length; i++) {
-    var decl = node.declarations[i];
-    this._curDeclarations[decl.id.name] = noop;
-    if (decl.init) {
-      assignments.push({
-        type: 'AssignmentExpression',
-        operator: '=',
-        left: decl.id,
-        right: decl.init
-      });
-    }
-  }
-  return this._gen({
-    type: 'BlockStatement',
-    body: assignments
-  });
-};
-
-Environment.prototype._genFuncExpr = function (node) {
-  var self = this;
-
-  var oldDeclarations = self._curDeclarations;
-  self._curDeclarations = {};
-  var body = self._gen(node.body);
-  var declarations = self._curDeclarations;
-  self._curDeclarations = oldDeclarations;
-
-  // reset var store
-  return function () {
-    var parent = self._curVarStore;
-    return function () {
-      // build arguments object
-      var args = new Arguments();
-      args.length = arguments.length;
-      for (var i = 0; i < arguments.length; i ++) {
-        args[i] = arguments[i];
-      }
-
-      // switch interpreter 'stack'
-      var oldStore = self._curVarStore;
-      var oldThis = self._curThis;
-      self._curVarStore = createVarStore(parent);
-      self._curThis = this;
-
-      addDeclarationsToStore(declarations, self._curVarStore);
-      self._curVarStore.vars.arguments = args;
-
-      // add function args to var store
-      node.params.forEach(function (param, i) {
-        self._curVarStore.vars[param.name] = args[i];
-      });
-
-      // run function body
-      var result = body();
-
-      // switch 'stack' back
-      self._curThis = oldThis;
-      self._curVarStore = oldStore;
-
-      if (result instanceof Return) {
-        return result.value;
-      }
-    };
-  };
-};
-
-function addDeclarationsToStore(declarations, varStore) {
-  for (var key in declarations) {
-    if (declarations.hasOwnProperty(key) && !varStore.vars.hasOwnProperty(key)) {
-      varStore.vars[key] = declarations[key]();
-    }
+} else {
+  // old school shim for old browsers
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    var TempCtor = function () {}
+    TempCtor.prototype = superCtor.prototype
+    ctor.prototype = new TempCtor()
+    ctor.prototype.constructor = ctor
   }
 }
 
-Environment.prototype._genProgram = function (node) {
-  var self = this;
-  var stmtClosures = node.body.map(function (stmt) {
-    return self._gen(stmt);
-  });
-  return function () {
-    var result;
-    for (var i = 0; i < stmtClosures.length; i++) {
-      result = stmtClosures[i]();
-      if (result === Break || result === Continue || result instanceof Return) {
-        break;
-      }
+},{}],4:[function(require,module,exports){
+module.exports = function isBuffer(arg) {
+  return arg && typeof arg === 'object'
+    && typeof arg.copy === 'function'
+    && typeof arg.fill === 'function'
+    && typeof arg.readUInt8 === 'function';
+}
+},{}],5:[function(require,module,exports){
+(function (process,global){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+var formatRegExp = /%[sdj%]/g;
+exports.format = function(f) {
+  if (!isString(f)) {
+    var objects = [];
+    for (var i = 0; i < arguments.length; i++) {
+      objects.push(inspect(arguments[i]));
     }
-    //return last
-    return result;
-  };
-};
-
-Environment.prototype._genExprStmt = function (node) {
-  return this._gen(node.expression);
-};
-
-Environment.prototype._genEmptyStmt = function () {
-  return noop;
-};
-
-Environment.prototype._genRetStmt = function (node) {
-  var arg = node.argument ? this._gen(node.argument) : noop;
-  return function () {
-    return new Return(arg());
-  };
-};
-
-Environment.prototype._genIfStmt = function (node) {
-  var test = this._gen(node.test);
-  var consequent = this._gen(node.consequent);
-  var alternate = node.alternate ? this._gen(node.alternate) : noop;
-
-  return function () {
-    return test() ? consequent() : alternate();
-  };
-};
-
-Environment.prototype._genLoopStmt = function (node, body) {
-  var init = node.init ? this._gen(node.init) : noop;
-  var test = node.test ? this._gen(node.test) : function () {
-    return true;
-  };
-  var update = node.update ? this._gen(node.update) : noop;
-  body = body || this._gen(node.body);
-
-  return function () {
-    var resp;
-    for (init(); test(); update()) {
-      var newResp = body();
-      if (newResp === Break) {
-        break;
-      }
-      if (newResp === Continue) {
-        continue;
-      }
-      resp = newResp;
-      if (newResp instanceof Return) {
-        break;
-      }
-    }
-    return resp;
-  };
-};
-
-Environment.prototype._genDoWhileStmt = function (node) {
-  var body = this._gen(node.body);
-  var loop = this._genLoopStmt(node, body);
-
-  return function () {
-    body();
-    return loop();
-  };
-};
-
-Environment.prototype._genForInStmt = function (node) {
-  var self = this;
-  var right = self._gen(node.right);
-  var body = self._gen(node.body);
-
-  var left = node.left;
-  if (left.type === 'VariableDeclaration') {
-    self._curDeclarations[left.declarations[0].id.name] = noop;
-    left = left.declarations[0].id;
+    return objects.join(' ');
   }
-  return function () {
-    var resp;
-    for (var x in right()) {
-      self._genAssignExpr({
-        operator: '=',
-        left: left,
-        right: {
-          type: 'Literal',
-          value: x
+
+  var i = 1;
+  var args = arguments;
+  var len = args.length;
+  var str = String(f).replace(formatRegExp, function(x) {
+    if (x === '%%') return '%';
+    if (i >= len) return x;
+    switch (x) {
+      case '%s': return String(args[i++]);
+      case '%d': return Number(args[i++]);
+      case '%j':
+        try {
+          return JSON.stringify(args[i++]);
+        } catch (_) {
+          return '[Circular]';
         }
-      })();
-      resp = body();
+      default:
+        return x;
     }
-    return resp;
-  };
-};
-
-Environment.prototype._genWithStmt = function (node) {
-  var self = this;
-  var obj = self._gen(node.object);
-  var body = self._gen(node.body);
-  return function () {
-    self._curVarStore = createVarStore(self._curVarStore, obj());
-    var result = body();
-    self._curVarStore = self._curVarStore.parent;
-    return result;
-  };
-};
-
-Environment.prototype._genThrowStmt = function (node) {
-  var arg = this._gen(node.argument);
-  return function () {
-    throw arg();
-  };
-};
-
-Environment.prototype._genTryStmt = function (node) {
-  var block = this._gen(node.block);
-  var handler = this._genCatchHandler(node.handler);
-  var finalizer = node.finalizer ? this._gen(node.finalizer) : function (x) {
-    return x;
-  };
-
-  return function () {
-    try {
-      return finalizer(block());
-    } catch (err) {
-      return finalizer(handler(err));
+  });
+  for (var x = args[i]; i < len; x = args[++i]) {
+    if (isNull(x) || !isObject(x)) {
+      str += ' ' + x;
+    } else {
+      str += ' ' + inspect(x);
     }
-  };
-};
-
-Environment.prototype._genCatchHandler = function (node) {
-  if (!node) {
-    return noop;
   }
-  var self = this;
-  var body = self._gen(node.body);
-  return function (err) {
-    var old = self._curVarStore.vars[node.param.name];
-    self._curVarStore.vars[node.param.name] = err;
-    var resp = body();
-    self._curVarStore.vars[node.param.name] = old;
-
-    return resp;
-  };
+  return str;
 };
 
-Environment.prototype._genContStmt = function () {
-  return function () {return Continue; };
-};
 
-Environment.prototype._genBreakStmt = function () {
-  return function () {return Break; };
-};
-
-Environment.prototype._genSwitchStmt = function (node) {
-  var self = this;
-
-  var discriminant = self._gen(node.discriminant);
-  var cases = node.cases.map(function (curCase) {
-    return {
-      test: curCase.test ? self._gen(curCase.test) : null,
-      code: self._genProgram({body: curCase.consequent})
+// Mark that a method should not be used.
+// Returns a modified function which warns once by default.
+// If --no-deprecation is set, then it is a no-op.
+exports.deprecate = function(fn, msg) {
+  // Allow for deprecating things in the process of starting up.
+  if (isUndefined(global.process)) {
+    return function() {
+      return exports.deprecate(fn, msg).apply(this, arguments);
     };
+  }
+
+  if (process.noDeprecation === true) {
+    return fn;
+  }
+
+  var warned = false;
+  function deprecated() {
+    if (!warned) {
+      if (process.throwDeprecation) {
+        throw new Error(msg);
+      } else if (process.traceDeprecation) {
+        console.trace(msg);
+      } else {
+        console.error(msg);
+      }
+      warned = true;
+    }
+    return fn.apply(this, arguments);
+  }
+
+  return deprecated;
+};
+
+
+var debugs = {};
+var debugEnviron;
+exports.debuglog = function(set) {
+  if (isUndefined(debugEnviron))
+    debugEnviron = process.env.NODE_DEBUG || '';
+  set = set.toUpperCase();
+  if (!debugs[set]) {
+    if (new RegExp('\\b' + set + '\\b', 'i').test(debugEnviron)) {
+      var pid = process.pid;
+      debugs[set] = function() {
+        var msg = exports.format.apply(exports, arguments);
+        console.error('%s %d: %s', set, pid, msg);
+      };
+    } else {
+      debugs[set] = function() {};
+    }
+  }
+  return debugs[set];
+};
+
+
+/**
+ * Echos the value of a value. Trys to print the value out
+ * in the best way possible given the different types.
+ *
+ * @param {Object} obj The object to print out.
+ * @param {Object} opts Optional options object that alters the output.
+ */
+/* legacy: obj, showHidden, depth, colors*/
+function inspect(obj, opts) {
+  // default options
+  var ctx = {
+    seen: [],
+    stylize: stylizeNoColor
+  };
+  // legacy...
+  if (arguments.length >= 3) ctx.depth = arguments[2];
+  if (arguments.length >= 4) ctx.colors = arguments[3];
+  if (isBoolean(opts)) {
+    // legacy...
+    ctx.showHidden = opts;
+  } else if (opts) {
+    // got an "options" object
+    exports._extend(ctx, opts);
+  }
+  // set default options
+  if (isUndefined(ctx.showHidden)) ctx.showHidden = false;
+  if (isUndefined(ctx.depth)) ctx.depth = 2;
+  if (isUndefined(ctx.colors)) ctx.colors = false;
+  if (isUndefined(ctx.customInspect)) ctx.customInspect = true;
+  if (ctx.colors) ctx.stylize = stylizeWithColor;
+  return formatValue(ctx, obj, ctx.depth);
+}
+exports.inspect = inspect;
+
+
+// http://en.wikipedia.org/wiki/ANSI_escape_code#graphics
+inspect.colors = {
+  'bold' : [1, 22],
+  'italic' : [3, 23],
+  'underline' : [4, 24],
+  'inverse' : [7, 27],
+  'white' : [37, 39],
+  'grey' : [90, 39],
+  'black' : [30, 39],
+  'blue' : [34, 39],
+  'cyan' : [36, 39],
+  'green' : [32, 39],
+  'magenta' : [35, 39],
+  'red' : [31, 39],
+  'yellow' : [33, 39]
+};
+
+// Don't use 'blue' not visible on cmd.exe
+inspect.styles = {
+  'special': 'cyan',
+  'number': 'yellow',
+  'boolean': 'yellow',
+  'undefined': 'grey',
+  'null': 'bold',
+  'string': 'green',
+  'date': 'magenta',
+  // "name": intentionally not styling
+  'regexp': 'red'
+};
+
+
+function stylizeWithColor(str, styleType) {
+  var style = inspect.styles[styleType];
+
+  if (style) {
+    return '\u001b[' + inspect.colors[style][0] + 'm' + str +
+           '\u001b[' + inspect.colors[style][1] + 'm';
+  } else {
+    return str;
+  }
+}
+
+
+function stylizeNoColor(str, styleType) {
+  return str;
+}
+
+
+function arrayToHash(array) {
+  var hash = {};
+
+  array.forEach(function(val, idx) {
+    hash[val] = true;
   });
 
-  return function () {
-    var foundMatch = false;
-    var discriminantVal = discriminant();
-    var resp, defaultCase;
+  return hash;
+}
 
-    for (var i = 0; i < cases.length; i++) {
-      var curCase = cases[i];
-      if (!foundMatch) {
-        if (!curCase.test) {
-          defaultCase = curCase;
-          continue;
-        }
-        if (discriminantVal !== curCase.test()) {
-          continue;
-        }
-        foundMatch = true;
-      }
-      // foundMatch is guaranteed to be true here
-      var newResp = curCase.code();
-      if (newResp === Break) {
-        return resp;
-      }
-      resp = newResp;
-      if (resp === Continue || resp instanceof Return) {
-        return resp;
-      }
+
+function formatValue(ctx, value, recurseTimes) {
+  // Provide a hook for user-specified inspect functions.
+  // Check that value is an object with an inspect function on it
+  if (ctx.customInspect &&
+      value &&
+      isFunction(value.inspect) &&
+      // Filter out the util module, it's inspect function is special
+      value.inspect !== exports.inspect &&
+      // Also filter out any prototype objects using the circular check.
+      !(value.constructor && value.constructor.prototype === value)) {
+    var ret = value.inspect(recurseTimes, ctx);
+    if (!isString(ret)) {
+      ret = formatValue(ctx, ret, recurseTimes);
     }
-    if (!foundMatch && defaultCase) {
-      return defaultCase.code();
+    return ret;
+  }
+
+  // Primitive types cannot have properties
+  var primitive = formatPrimitive(ctx, value);
+  if (primitive) {
+    return primitive;
+  }
+
+  // Look up the keys of the object.
+  var keys = Object.keys(value);
+  var visibleKeys = arrayToHash(keys);
+
+  if (ctx.showHidden) {
+    keys = Object.getOwnPropertyNames(value);
+  }
+
+  // IE doesn't make error fields non-enumerable
+  // http://msdn.microsoft.com/en-us/library/ie/dww52sbt(v=vs.94).aspx
+  if (isError(value)
+      && (keys.indexOf('message') >= 0 || keys.indexOf('description') >= 0)) {
+    return formatError(value);
+  }
+
+  // Some type of object without properties can be shortcutted.
+  if (keys.length === 0) {
+    if (isFunction(value)) {
+      var name = value.name ? ': ' + value.name : '';
+      return ctx.stylize('[Function' + name + ']', 'special');
     }
-  };
+    if (isRegExp(value)) {
+      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
+    }
+    if (isDate(value)) {
+      return ctx.stylize(Date.prototype.toString.call(value), 'date');
+    }
+    if (isError(value)) {
+      return formatError(value);
+    }
+  }
+
+  var base = '', array = false, braces = ['{', '}'];
+
+  // Make Array say that they are Array
+  if (isArray(value)) {
+    array = true;
+    braces = ['[', ']'];
+  }
+
+  // Make functions say that they are functions
+  if (isFunction(value)) {
+    var n = value.name ? ': ' + value.name : '';
+    base = ' [Function' + n + ']';
+  }
+
+  // Make RegExps say that they are RegExps
+  if (isRegExp(value)) {
+    base = ' ' + RegExp.prototype.toString.call(value);
+  }
+
+  // Make dates with properties first say the date
+  if (isDate(value)) {
+    base = ' ' + Date.prototype.toUTCString.call(value);
+  }
+
+  // Make error with message first say the error
+  if (isError(value)) {
+    base = ' ' + formatError(value);
+  }
+
+  if (keys.length === 0 && (!array || value.length == 0)) {
+    return braces[0] + base + braces[1];
+  }
+
+  if (recurseTimes < 0) {
+    if (isRegExp(value)) {
+      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
+    } else {
+      return ctx.stylize('[Object]', 'special');
+    }
+  }
+
+  ctx.seen.push(value);
+
+  var output;
+  if (array) {
+    output = formatArray(ctx, value, recurseTimes, visibleKeys, keys);
+  } else {
+    output = keys.map(function(key) {
+      return formatProperty(ctx, value, recurseTimes, visibleKeys, key, array);
+    });
+  }
+
+  ctx.seen.pop();
+
+  return reduceToSingleString(output, base, braces);
+}
+
+
+function formatPrimitive(ctx, value) {
+  if (isUndefined(value))
+    return ctx.stylize('undefined', 'undefined');
+  if (isString(value)) {
+    var simple = '\'' + JSON.stringify(value).replace(/^"|"$/g, '')
+                                             .replace(/'/g, "\\'")
+                                             .replace(/\\"/g, '"') + '\'';
+    return ctx.stylize(simple, 'string');
+  }
+  if (isNumber(value))
+    return ctx.stylize('' + value, 'number');
+  if (isBoolean(value))
+    return ctx.stylize('' + value, 'boolean');
+  // For some reason typeof null is "object", so special case here.
+  if (isNull(value))
+    return ctx.stylize('null', 'null');
+}
+
+
+function formatError(value) {
+  return '[' + Error.prototype.toString.call(value) + ']';
+}
+
+
+function formatArray(ctx, value, recurseTimes, visibleKeys, keys) {
+  var output = [];
+  for (var i = 0, l = value.length; i < l; ++i) {
+    if (hasOwnProperty(value, String(i))) {
+      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
+          String(i), true));
+    } else {
+      output.push('');
+    }
+  }
+  keys.forEach(function(key) {
+    if (!key.match(/^\d+$/)) {
+      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
+          key, true));
+    }
+  });
+  return output;
+}
+
+
+function formatProperty(ctx, value, recurseTimes, visibleKeys, key, array) {
+  var name, str, desc;
+  desc = Object.getOwnPropertyDescriptor(value, key) || { value: value[key] };
+  if (desc.get) {
+    if (desc.set) {
+      str = ctx.stylize('[Getter/Setter]', 'special');
+    } else {
+      str = ctx.stylize('[Getter]', 'special');
+    }
+  } else {
+    if (desc.set) {
+      str = ctx.stylize('[Setter]', 'special');
+    }
+  }
+  if (!hasOwnProperty(visibleKeys, key)) {
+    name = '[' + key + ']';
+  }
+  if (!str) {
+    if (ctx.seen.indexOf(desc.value) < 0) {
+      if (isNull(recurseTimes)) {
+        str = formatValue(ctx, desc.value, null);
+      } else {
+        str = formatValue(ctx, desc.value, recurseTimes - 1);
+      }
+      if (str.indexOf('\n') > -1) {
+        if (array) {
+          str = str.split('\n').map(function(line) {
+            return '  ' + line;
+          }).join('\n').substr(2);
+        } else {
+          str = '\n' + str.split('\n').map(function(line) {
+            return '   ' + line;
+          }).join('\n');
+        }
+      }
+    } else {
+      str = ctx.stylize('[Circular]', 'special');
+    }
+  }
+  if (isUndefined(name)) {
+    if (array && key.match(/^\d+$/)) {
+      return str;
+    }
+    name = JSON.stringify('' + key);
+    if (name.match(/^"([a-zA-Z_][a-zA-Z_0-9]*)"$/)) {
+      name = name.substr(1, name.length - 2);
+      name = ctx.stylize(name, 'name');
+    } else {
+      name = name.replace(/'/g, "\\'")
+                 .replace(/\\"/g, '"')
+                 .replace(/(^"|"$)/g, "'");
+      name = ctx.stylize(name, 'string');
+    }
+  }
+
+  return name + ': ' + str;
+}
+
+
+function reduceToSingleString(output, base, braces) {
+  var numLinesEst = 0;
+  var length = output.reduce(function(prev, cur) {
+    numLinesEst++;
+    if (cur.indexOf('\n') >= 0) numLinesEst++;
+    return prev + cur.replace(/\u001b\[\d\d?m/g, '').length + 1;
+  }, 0);
+
+  if (length > 60) {
+    return braces[0] +
+           (base === '' ? '' : base + '\n ') +
+           ' ' +
+           output.join(',\n  ') +
+           ' ' +
+           braces[1];
+  }
+
+  return braces[0] + base + ' ' + output.join(', ') + ' ' + braces[1];
+}
+
+
+// NOTE: These type checking functions intentionally don't use `instanceof`
+// because it is fragile and can be easily faked with `Object.create()`.
+function isArray(ar) {
+  return Array.isArray(ar);
+}
+exports.isArray = isArray;
+
+function isBoolean(arg) {
+  return typeof arg === 'boolean';
+}
+exports.isBoolean = isBoolean;
+
+function isNull(arg) {
+  return arg === null;
+}
+exports.isNull = isNull;
+
+function isNullOrUndefined(arg) {
+  return arg == null;
+}
+exports.isNullOrUndefined = isNullOrUndefined;
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+exports.isNumber = isNumber;
+
+function isString(arg) {
+  return typeof arg === 'string';
+}
+exports.isString = isString;
+
+function isSymbol(arg) {
+  return typeof arg === 'symbol';
+}
+exports.isSymbol = isSymbol;
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+exports.isUndefined = isUndefined;
+
+function isRegExp(re) {
+  return isObject(re) && objectToString(re) === '[object RegExp]';
+}
+exports.isRegExp = isRegExp;
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+exports.isObject = isObject;
+
+function isDate(d) {
+  return isObject(d) && objectToString(d) === '[object Date]';
+}
+exports.isDate = isDate;
+
+function isError(e) {
+  return isObject(e) &&
+      (objectToString(e) === '[object Error]' || e instanceof Error);
+}
+exports.isError = isError;
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+exports.isFunction = isFunction;
+
+function isPrimitive(arg) {
+  return arg === null ||
+         typeof arg === 'boolean' ||
+         typeof arg === 'number' ||
+         typeof arg === 'string' ||
+         typeof arg === 'symbol' ||  // ES6 symbol
+         typeof arg === 'undefined';
+}
+exports.isPrimitive = isPrimitive;
+
+exports.isBuffer = require('./support/isBuffer');
+
+function objectToString(o) {
+  return Object.prototype.toString.call(o);
+}
+
+
+function pad(n) {
+  return n < 10 ? '0' + n.toString(10) : n.toString(10);
+}
+
+
+var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
+              'Oct', 'Nov', 'Dec'];
+
+// 26 Feb 16:19:34
+function timestamp() {
+  var d = new Date();
+  var time = [pad(d.getHours()),
+              pad(d.getMinutes()),
+              pad(d.getSeconds())].join(':');
+  return [d.getDate(), months[d.getMonth()], time].join(' ');
+}
+
+
+// log is just a thin wrapper to console.log that prepends a timestamp
+exports.log = function() {
+  console.log('%s - %s', timestamp(), exports.format.apply(exports, arguments));
 };
 
-exports.Environment = Environment;
-exports.evaluate = function (code) {
-  var env = new Environment(global);
-  var resp = env.gen(code)();
-  return resp;
+
+/**
+ * Inherit the prototype methods from one constructor into another.
+ *
+ * The Function.prototype.inherits from lang.js rewritten as a standalone
+ * function (not on Function.prototype). NOTE: If this file is to be loaded
+ * during bootstrapping this function needs to be rewritten using some native
+ * functions as prototype setup using normal JavaScript does not work as
+ * expected during bootstrapping (see mirror.js in r114903).
+ *
+ * @param {function} ctor Constructor function which needs to inherit the
+ *     prototype.
+ * @param {function} superCtor Constructor function to inherit prototype from.
+ */
+exports.inherits = require('inherits');
+
+exports._extend = function(origin, add) {
+  // Don't do anything if add isn't an object
+  if (!add || !isObject(add)) return origin;
+
+  var keys = Object.keys(add);
+  var i = keys.length;
+  while (i--) {
+    origin[keys[i]] = add[keys[i]];
+  }
+  return origin;
 };
 
-//console.log(exports.evaluate("1 + 1"));
+function hasOwnProperty(obj, prop) {
+  return Object.prototype.hasOwnProperty.call(obj, prop);
+}
 
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"acorn":2}],2:[function(require,module,exports){
+}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"./support/isBuffer":4,"_process":2,"inherits":3}],"acorn":[function(require,module,exports){
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
   typeof define === 'function' && define.amd ? define(['exports'], factory) :
@@ -4093,4 +4518,2499 @@ exports.lineBreakG = lineBreakG;
 Object.defineProperty(exports, '__esModule', { value: true });
 
 })));
-},{}]},{},[1]);
+},{}],"evaljs":[function(require,module,exports){
+(function (process,global){
+/**
+ * Copyright (c) 2014, Facebook, Inc.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * https://raw.github.com/facebook/regenerator/master/LICENSE file. An
+ * additional grant of patent rights can be found in the PATENTS file in
+ * the same directory.
+ */
+
+!(function(global) {
+  "use strict";
+
+  var Op = Object.prototype;
+  var hasOwn = Op.hasOwnProperty;
+  var undefined; // More compressible than void 0.
+  var $Symbol = typeof Symbol === "function" ? Symbol : {};
+  var iteratorSymbol = $Symbol.iterator || "@@iterator";
+  var toStringTagSymbol = $Symbol.toStringTag || "@@toStringTag";
+
+  var inModule = typeof module === "object";
+  var runtime = global.regeneratorRuntime;
+  if (runtime) {
+    if (inModule) {
+      // If regeneratorRuntime is defined globally and we're in a module,
+      // make the exports object identical to regeneratorRuntime.
+      module.exports = runtime;
+    }
+    // Don't bother evaluating the rest of this file if the runtime was
+    // already defined globally.
+    return;
+  }
+
+  // Define the runtime globally (as expected by generated code) as either
+  // module.exports (if we're in a module) or a new, empty object.
+  runtime = global.regeneratorRuntime = inModule ? module.exports : {};
+
+  function wrap(innerFn, outerFn, self, tryLocsList) {
+    // If outerFn provided and outerFn.prototype is a Generator, then outerFn.prototype instanceof Generator.
+    var protoGenerator = outerFn && outerFn.prototype instanceof Generator ? outerFn : Generator;
+    var generator = Object.create(protoGenerator.prototype);
+    var context = new Context(tryLocsList || []);
+
+    // The ._invoke method unifies the implementations of the .next,
+    // .throw, and .return methods.
+    generator._invoke = makeInvokeMethod(innerFn, self, context);
+
+    return generator;
+  }
+  runtime.wrap = wrap;
+
+  // Try/catch helper to minimize deoptimizations. Returns a completion
+  // record like context.tryEntries[i].completion. This interface could
+  // have been (and was previously) designed to take a closure to be
+  // invoked without arguments, but in all the cases we care about we
+  // already have an existing method we want to call, so there's no need
+  // to create a new function object. We can even get away with assuming
+  // the method takes exactly one argument, since that happens to be true
+  // in every case, so we don't have to touch the arguments object. The
+  // only additional allocation required is the completion record, which
+  // has a stable shape and so hopefully should be cheap to allocate.
+  function tryCatch(fn, obj, arg) {
+    try {
+      return { type: "normal", arg: fn.call(obj, arg) };
+    } catch (err) {
+      return { type: "throw", arg: err };
+    }
+  }
+
+  var GenStateSuspendedStart = "suspendedStart";
+  var GenStateSuspendedYield = "suspendedYield";
+  var GenStateExecuting = "executing";
+  var GenStateCompleted = "completed";
+
+  // Returning this object from the innerFn has the same effect as
+  // breaking out of the dispatch switch statement.
+  var ContinueSentinel = {};
+
+  // Dummy constructor functions that we use as the .constructor and
+  // .constructor.prototype properties for functions that return Generator
+  // objects. For full spec compliance, you may wish to configure your
+  // minifier not to mangle the names of these two functions.
+  function Generator() {}
+  function GeneratorFunction() {}
+  function GeneratorFunctionPrototype() {}
+
+  // This is a polyfill for %IteratorPrototype% for environments that
+  // don't natively support it.
+  var IteratorPrototype = {};
+  IteratorPrototype[iteratorSymbol] = function () {
+    return this;
+  };
+
+  var getProto = Object.getPrototypeOf;
+  var NativeIteratorPrototype = getProto && getProto(getProto(values([])));
+  if (NativeIteratorPrototype &&
+      NativeIteratorPrototype !== Op &&
+      hasOwn.call(NativeIteratorPrototype, iteratorSymbol)) {
+    // This environment has a native %IteratorPrototype%; use it instead
+    // of the polyfill.
+    IteratorPrototype = NativeIteratorPrototype;
+  }
+
+  var Gp = GeneratorFunctionPrototype.prototype =
+    Generator.prototype = Object.create(IteratorPrototype);
+  GeneratorFunction.prototype = Gp.constructor = GeneratorFunctionPrototype;
+  GeneratorFunctionPrototype.constructor = GeneratorFunction;
+  GeneratorFunctionPrototype[toStringTagSymbol] =
+    GeneratorFunction.displayName = "GeneratorFunction";
+
+  // Helper for defining the .next, .throw, and .return methods of the
+  // Iterator interface in terms of a single ._invoke method.
+  function defineIteratorMethods(prototype) {
+    ["next", "throw", "return"].forEach(function(method) {
+      prototype[method] = function(arg) {
+        return this._invoke(method, arg);
+      };
+    });
+  }
+
+  runtime.isGeneratorFunction = function(genFun) {
+    var ctor = typeof genFun === "function" && genFun.constructor;
+    return ctor
+      ? ctor === GeneratorFunction ||
+        // For the native GeneratorFunction constructor, the best we can
+        // do is to check its .name property.
+        (ctor.displayName || ctor.name) === "GeneratorFunction"
+      : false;
+  };
+
+  runtime.mark = function(genFun) {
+    if (Object.setPrototypeOf) {
+      Object.setPrototypeOf(genFun, GeneratorFunctionPrototype);
+    } else {
+      genFun.__proto__ = GeneratorFunctionPrototype;
+      if (!(toStringTagSymbol in genFun)) {
+        genFun[toStringTagSymbol] = "GeneratorFunction";
+      }
+    }
+    genFun.prototype = Object.create(Gp);
+    return genFun;
+  };
+
+  // Within the body of any async function, `await x` is transformed to
+  // `yield regeneratorRuntime.awrap(x)`, so that the runtime can test
+  // `hasOwn.call(value, "__await")` to determine if the yielded value is
+  // meant to be awaited.
+  runtime.awrap = function(arg) {
+    return { __await: arg };
+  };
+
+  function AsyncIterator(generator) {
+    function invoke(method, arg, resolve, reject) {
+      var record = tryCatch(generator[method], generator, arg);
+      if (record.type === "throw") {
+        reject(record.arg);
+      } else {
+        var result = record.arg;
+        var value = result.value;
+        if (value &&
+            typeof value === "object" &&
+            hasOwn.call(value, "__await")) {
+          return Promise.resolve(value.__await).then(function(value) {
+            invoke("next", value, resolve, reject);
+          }, function(err) {
+            invoke("throw", err, resolve, reject);
+          });
+        }
+
+        return Promise.resolve(value).then(function(unwrapped) {
+          // When a yielded Promise is resolved, its final value becomes
+          // the .value of the Promise<{value,done}> result for the
+          // current iteration. If the Promise is rejected, however, the
+          // result for this iteration will be rejected with the same
+          // reason. Note that rejections of yielded Promises are not
+          // thrown back into the generator function, as is the case
+          // when an awaited Promise is rejected. This difference in
+          // behavior between yield and await is important, because it
+          // allows the consumer to decide what to do with the yielded
+          // rejection (swallow it and continue, manually .throw it back
+          // into the generator, abandon iteration, whatever). With
+          // await, by contrast, there is no opportunity to examine the
+          // rejection reason outside the generator function, so the
+          // only option is to throw it from the await expression, and
+          // let the generator function handle the exception.
+          result.value = unwrapped;
+          resolve(result);
+        }, reject);
+      }
+    }
+
+    if (typeof process === "object" && process.domain) {
+      invoke = process.domain.bind(invoke);
+    }
+
+    var previousPromise;
+
+    function enqueue(method, arg) {
+      function callInvokeWithMethodAndArg() {
+        return new Promise(function(resolve, reject) {
+          invoke(method, arg, resolve, reject);
+        });
+      }
+
+      return previousPromise =
+        // If enqueue has been called before, then we want to wait until
+        // all previous Promises have been resolved before calling invoke,
+        // so that results are always delivered in the correct order. If
+        // enqueue has not been called before, then it is important to
+        // call invoke immediately, without waiting on a callback to fire,
+        // so that the async generator function has the opportunity to do
+        // any necessary setup in a predictable way. This predictability
+        // is why the Promise constructor synchronously invokes its
+        // executor callback, and why async functions synchronously
+        // execute code before the first await. Since we implement simple
+        // async functions in terms of async generators, it is especially
+        // important to get this right, even though it requires care.
+        previousPromise ? previousPromise.then(
+          callInvokeWithMethodAndArg,
+          // Avoid propagating failures to Promises returned by later
+          // invocations of the iterator.
+          callInvokeWithMethodAndArg
+        ) : callInvokeWithMethodAndArg();
+    }
+
+    // Define the unified helper method that is used to implement .next,
+    // .throw, and .return (see defineIteratorMethods).
+    this._invoke = enqueue;
+  }
+
+  defineIteratorMethods(AsyncIterator.prototype);
+  runtime.AsyncIterator = AsyncIterator;
+
+  // Note that simple async functions are implemented on top of
+  // AsyncIterator objects; they just return a Promise for the value of
+  // the final result produced by the iterator.
+  runtime.async = function(innerFn, outerFn, self, tryLocsList) {
+    var iter = new AsyncIterator(
+      wrap(innerFn, outerFn, self, tryLocsList)
+    );
+
+    return runtime.isGeneratorFunction(outerFn)
+      ? iter // If outerFn is a generator, return the full iterator.
+      : iter.next().then(function(result) {
+          return result.done ? result.value : iter.next();
+        });
+  };
+
+  function makeInvokeMethod(innerFn, self, context) {
+    var state = GenStateSuspendedStart;
+
+    return function invoke(method, arg) {
+      if (state === GenStateExecuting) {
+        throw new Error("Generator is already running");
+      }
+
+      if (state === GenStateCompleted) {
+        if (method === "throw") {
+          throw arg;
+        }
+
+        // Be forgiving, per 25.3.3.3.3 of the spec:
+        // https://people.mozilla.org/~jorendorff/es6-draft.html#sec-generatorresume
+        return doneResult();
+      }
+
+      while (true) {
+        var delegate = context.delegate;
+        if (delegate) {
+          if (method === "return" ||
+              (method === "throw" && delegate.iterator[method] === undefined)) {
+            // A return or throw (when the delegate iterator has no throw
+            // method) always terminates the yield* loop.
+            context.delegate = null;
+
+            // If the delegate iterator has a return method, give it a
+            // chance to clean up.
+            var returnMethod = delegate.iterator["return"];
+            if (returnMethod) {
+              var record = tryCatch(returnMethod, delegate.iterator, arg);
+              if (record.type === "throw") {
+                // If the return method threw an exception, let that
+                // exception prevail over the original return or throw.
+                method = "throw";
+                arg = record.arg;
+                continue;
+              }
+            }
+
+            if (method === "return") {
+              // Continue with the outer return, now that the delegate
+              // iterator has been terminated.
+              continue;
+            }
+          }
+
+          var record = tryCatch(
+            delegate.iterator[method],
+            delegate.iterator,
+            arg
+          );
+
+          if (record.type === "throw") {
+            context.delegate = null;
+
+            // Like returning generator.throw(uncaught), but without the
+            // overhead of an extra function call.
+            method = "throw";
+            arg = record.arg;
+            continue;
+          }
+
+          // Delegate generator ran and handled its own exceptions so
+          // regardless of what the method was, we continue as if it is
+          // "next" with an undefined arg.
+          method = "next";
+          arg = undefined;
+
+          var info = record.arg;
+          if (info.done) {
+            context[delegate.resultName] = info.value;
+            context.next = delegate.nextLoc;
+          } else {
+            state = GenStateSuspendedYield;
+            return info;
+          }
+
+          context.delegate = null;
+        }
+
+        if (method === "next") {
+          // Setting context._sent for legacy support of Babel's
+          // function.sent implementation.
+          context.sent = context._sent = arg;
+
+        } else if (method === "throw") {
+          if (state === GenStateSuspendedStart) {
+            state = GenStateCompleted;
+            throw arg;
+          }
+
+          if (context.dispatchException(arg)) {
+            // If the dispatched exception was caught by a catch block,
+            // then let that catch block handle the exception normally.
+            method = "next";
+            arg = undefined;
+          }
+
+        } else if (method === "return") {
+          context.abrupt("return", arg);
+        }
+
+        state = GenStateExecuting;
+
+        var record = tryCatch(innerFn, self, context);
+        if (record.type === "normal") {
+          // If an exception is thrown from innerFn, we leave state ===
+          // GenStateExecuting and loop back for another invocation.
+          state = context.done
+            ? GenStateCompleted
+            : GenStateSuspendedYield;
+
+          var info = {
+            value: record.arg,
+            done: context.done
+          };
+
+          if (record.arg === ContinueSentinel) {
+            if (context.delegate && method === "next") {
+              // Deliberately forget the last sent value so that we don't
+              // accidentally pass it on to the delegate.
+              arg = undefined;
+            }
+          } else {
+            return info;
+          }
+
+        } else if (record.type === "throw") {
+          state = GenStateCompleted;
+          // Dispatch the exception by looping back around to the
+          // context.dispatchException(arg) call above.
+          method = "throw";
+          arg = record.arg;
+        }
+      }
+    };
+  }
+
+  // Define Generator.prototype.{next,throw,return} in terms of the
+  // unified ._invoke helper method.
+  defineIteratorMethods(Gp);
+
+  Gp[toStringTagSymbol] = "Generator";
+
+  Gp.toString = function() {
+    return "[object Generator]";
+  };
+
+  function pushTryEntry(locs) {
+    var entry = { tryLoc: locs[0] };
+
+    if (1 in locs) {
+      entry.catchLoc = locs[1];
+    }
+
+    if (2 in locs) {
+      entry.finallyLoc = locs[2];
+      entry.afterLoc = locs[3];
+    }
+
+    this.tryEntries.push(entry);
+  }
+
+  function resetTryEntry(entry) {
+    var record = entry.completion || {};
+    record.type = "normal";
+    delete record.arg;
+    entry.completion = record;
+  }
+
+  function Context(tryLocsList) {
+    // The root entry object (effectively a try statement without a catch
+    // or a finally block) gives us a place to store values thrown from
+    // locations where there is no enclosing try statement.
+    this.tryEntries = [{ tryLoc: "root" }];
+    tryLocsList.forEach(pushTryEntry, this);
+    this.reset(true);
+  }
+
+  runtime.keys = function(object) {
+    var keys = [];
+    for (var key in object) {
+      keys.push(key);
+    }
+    keys.reverse();
+
+    // Rather than returning an object with a next method, we keep
+    // things simple and return the next function itself.
+    return function next() {
+      while (keys.length) {
+        var key = keys.pop();
+        if (key in object) {
+          next.value = key;
+          next.done = false;
+          return next;
+        }
+      }
+
+      // To avoid creating an additional object, we just hang the .value
+      // and .done properties off the next function object itself. This
+      // also ensures that the minifier will not anonymize the function.
+      next.done = true;
+      return next;
+    };
+  };
+
+  function values(iterable) {
+    if (iterable) {
+      var iteratorMethod = iterable[iteratorSymbol];
+      if (iteratorMethod) {
+        return iteratorMethod.call(iterable);
+      }
+
+      if (typeof iterable.next === "function") {
+        return iterable;
+      }
+
+      if (!isNaN(iterable.length)) {
+        var i = -1, next = function next() {
+          while (++i < iterable.length) {
+            if (hasOwn.call(iterable, i)) {
+              next.value = iterable[i];
+              next.done = false;
+              return next;
+            }
+          }
+
+          next.value = undefined;
+          next.done = true;
+
+          return next;
+        };
+
+        return next.next = next;
+      }
+    }
+
+    // Return an iterator with no values.
+    return { next: doneResult };
+  }
+  runtime.values = values;
+
+  function doneResult() {
+    return { value: undefined, done: true };
+  }
+
+  Context.prototype = {
+    constructor: Context,
+
+    reset: function(skipTempReset) {
+      this.prev = 0;
+      this.next = 0;
+      // Resetting context._sent for legacy support of Babel's
+      // function.sent implementation.
+      this.sent = this._sent = undefined;
+      this.done = false;
+      this.delegate = null;
+
+      this.tryEntries.forEach(resetTryEntry);
+
+      if (!skipTempReset) {
+        for (var name in this) {
+          // Not sure about the optimal order of these conditions:
+          if (name.charAt(0) === "t" &&
+              hasOwn.call(this, name) &&
+              !isNaN(+name.slice(1))) {
+            this[name] = undefined;
+          }
+        }
+      }
+    },
+
+    stop: function() {
+      this.done = true;
+
+      var rootEntry = this.tryEntries[0];
+      var rootRecord = rootEntry.completion;
+      if (rootRecord.type === "throw") {
+        throw rootRecord.arg;
+      }
+
+      return this.rval;
+    },
+
+    dispatchException: function(exception) {
+      if (this.done) {
+        throw exception;
+      }
+
+      var context = this;
+      function handle(loc, caught) {
+        record.type = "throw";
+        record.arg = exception;
+        context.next = loc;
+        return !!caught;
+      }
+
+      for (var i = this.tryEntries.length - 1; i >= 0; --i) {
+        var entry = this.tryEntries[i];
+        var record = entry.completion;
+
+        if (entry.tryLoc === "root") {
+          // Exception thrown outside of any try block that could handle
+          // it, so set the completion value of the entire function to
+          // throw the exception.
+          return handle("end");
+        }
+
+        if (entry.tryLoc <= this.prev) {
+          var hasCatch = hasOwn.call(entry, "catchLoc");
+          var hasFinally = hasOwn.call(entry, "finallyLoc");
+
+          if (hasCatch && hasFinally) {
+            if (this.prev < entry.catchLoc) {
+              return handle(entry.catchLoc, true);
+            } else if (this.prev < entry.finallyLoc) {
+              return handle(entry.finallyLoc);
+            }
+
+          } else if (hasCatch) {
+            if (this.prev < entry.catchLoc) {
+              return handle(entry.catchLoc, true);
+            }
+
+          } else if (hasFinally) {
+            if (this.prev < entry.finallyLoc) {
+              return handle(entry.finallyLoc);
+            }
+
+          } else {
+            throw new Error("try statement without catch or finally");
+          }
+        }
+      }
+    },
+
+    abrupt: function(type, arg) {
+      for (var i = this.tryEntries.length - 1; i >= 0; --i) {
+        var entry = this.tryEntries[i];
+        if (entry.tryLoc <= this.prev &&
+            hasOwn.call(entry, "finallyLoc") &&
+            this.prev < entry.finallyLoc) {
+          var finallyEntry = entry;
+          break;
+        }
+      }
+
+      if (finallyEntry &&
+          (type === "break" ||
+           type === "continue") &&
+          finallyEntry.tryLoc <= arg &&
+          arg <= finallyEntry.finallyLoc) {
+        // Ignore the finally entry if control is not jumping to a
+        // location outside the try/catch block.
+        finallyEntry = null;
+      }
+
+      var record = finallyEntry ? finallyEntry.completion : {};
+      record.type = type;
+      record.arg = arg;
+
+      if (finallyEntry) {
+        this.next = finallyEntry.finallyLoc;
+      } else {
+        this.complete(record);
+      }
+
+      return ContinueSentinel;
+    },
+
+    complete: function(record, afterLoc) {
+      if (record.type === "throw") {
+        throw record.arg;
+      }
+
+      if (record.type === "break" ||
+          record.type === "continue") {
+        this.next = record.arg;
+      } else if (record.type === "return") {
+        this.rval = record.arg;
+        this.next = "end";
+      } else if (record.type === "normal" && afterLoc) {
+        this.next = afterLoc;
+      }
+    },
+
+    finish: function(finallyLoc) {
+      for (var i = this.tryEntries.length - 1; i >= 0; --i) {
+        var entry = this.tryEntries[i];
+        if (entry.finallyLoc === finallyLoc) {
+          this.complete(entry.completion, entry.afterLoc);
+          resetTryEntry(entry);
+          return ContinueSentinel;
+        }
+      }
+    },
+
+    "catch": function(tryLoc) {
+      for (var i = this.tryEntries.length - 1; i >= 0; --i) {
+        var entry = this.tryEntries[i];
+        if (entry.tryLoc === tryLoc) {
+          var record = entry.completion;
+          if (record.type === "throw") {
+            var thrown = record.arg;
+            resetTryEntry(entry);
+          }
+          return thrown;
+        }
+      }
+
+      // The context.catch method must only be called with a location
+      // argument that corresponds to a known catch block.
+      throw new Error("illegal catch attempt");
+    },
+
+    delegateYield: function(iterable, resultName, nextLoc) {
+      this.delegate = {
+        iterator: values(iterable),
+        resultName: resultName,
+        nextLoc: nextLoc
+      };
+
+      return ContinueSentinel;
+    }
+  };
+})(
+  // Among the various tricks for obtaining a reference to the global
+  // object, this seems to be the most reliable technique that does not
+  // use indirect eval (which violates Content Security Policy).
+  typeof global === "object" ? global :
+  typeof window === "object" ? window :
+  typeof self === "object" ? self : this
+);
+
+/* jshint esversion: 6 */
+/* jshint noyield: true */
+
+"use strict";
+
+//TODO:
+//- LabeledStatement -> including use in break/continue
+//- nicer error handling?
+//-> TESTS
+//-> BENCHMARKS
+
+var parse = require('acorn').parse;
+var util = require("util");
+var EventEmitter = require("events").EventEmitter;
+
+function noop() {}
+
+function execute(func) {
+  var result = func();
+  if ('' + result === 'null') {
+    return result;
+  }
+  // FIXME: Convert to yield*
+  if (result !== undefined) {
+    if (result.next) {
+      var iter = result;
+      var res = iter.next();
+      while (!res.done) {
+        res = iter.next();
+      }
+      if ('' + res.value === 'null') {
+        return res.value;
+      }
+      if ('' + res.value === 'undefined') {
+        return res.value;
+      }
+      return res.value;
+    }
+  }
+  return result;
+}
+
+function Arguments() {
+  //TODO: add es3 'arguments.callee'?
+}
+
+Arguments.prototype.toString = function () {
+  return '[object Arguments]';
+};
+
+function Return(val) {
+  this.value = val;
+}
+
+// need something unique to compare a against.
+var Break = {};
+var Continue = {};
+
+function Environment(globalObjects) {
+  EventEmitter.call(this);
+  if (!Array.isArray(globalObjects)) {
+    globalObjects = [globalObjects];
+  }
+  var parent;
+  globalObjects.forEach(function (vars) {
+    parent = createVarStore(parent, vars);
+  });
+  // the topmost store is our current store
+  this._curVarStore = parent;
+  this._curDeclarations = {};
+  this._globalObj = globalObjects[0];
+  this._curThis = this._globalObj;
+  this._boundGen = this._gen.bind(this);
+  this.DEBUG = false;
+  this.DELAY = 0;
+  this.STATE = 'running';
+}
+
+util.inherits(Environment, EventEmitter);
+
+function createVarStore(parent, vars) {
+  vars = vars || {};
+  return {
+    parent: parent,
+    vars: vars
+  };
+}
+
+Environment.prototype.gen = function (node) {
+  var opts = {
+    'locations': true
+  };
+  if (typeof node === 'string') {
+    node = parse(node, opts);
+  }
+  var resp = this._gen(node);
+  addDeclarationsToStore(this._curDeclarations, this._curVarStore);
+  this._curDeclarations = {};
+  return resp;
+};
+
+Environment.prototype._gen = function (node) {
+  var closure = ({
+    BinaryExpression: this._genBinExpr,
+    LogicalExpression: this._genBinExpr,
+    UnaryExpression: this._genUnaryExpr,
+    UpdateExpression: this._genUpdExpr,
+    ObjectExpression: this._genObjExpr,
+    ArrayExpression: this._genArrExpr,
+    CallExpression: this._genCallExpr,
+    NewExpression: this._genNewExpr,
+    MemberExpression: this._genMemExpr,
+    ThisExpression: this._genThisExpr,
+    SequenceExpression: this._genSeqExpr,
+    Literal: this._genLit,
+    Identifier: this._genIdent,
+    AssignmentExpression: this._genAssignExpr,
+    FunctionDeclaration: this._genFuncDecl,
+    VariableDeclaration: this._genVarDecl,
+    BlockStatement: this._genProgram,
+    Program: this._genProgram,
+    ExpressionStatement: this._genExprStmt,
+    EmptyStatement: this._genEmptyStmt,
+    ReturnStatement: this._genRetStmt,
+    FunctionExpression: this._genFuncExpr,
+    IfStatement: this._genIfStmt,
+    ConditionalExpression: this._genCondStmt,
+    ForStatement: this._genLoopStmt,
+    WhileStatement: this._genLoopStmt,
+    DoWhileStatement: this._genDoWhileStmt,
+    ForInStatement: this._genForInStmt,
+    WithStatement: this._genWithStmt,
+    ThrowStatement: this._genThrowStmt,
+    TryStatement: this._genTryStmt,
+    ContinueStatement: this._genContStmt,
+    BreakStatement: this._genBreakStmt,
+    SwitchStatement: this._genSwitchStmt
+  }[node.type] || function () {
+    console.warn("Not implemented yet: " + node.type);
+    return noop;
+  }).call(this, node);
+
+  if (this.DEBUG) {
+    return function () {
+      var info = 'closure for ' + node.type + ' called';
+      var line = ((node.loc || {}).start || {}).line;
+      if (line) {
+        info += ' while processing line ' + line;
+      }
+      var resp = closure();
+      info += '. Result:';
+      console.log(info, resp);
+      return resp;
+    };
+  }
+  return closure;
+};
+
+Environment.prototype._genBinExpr = function (node) {
+  var _marked = [callExpr].map(regeneratorRuntime.mark);
+
+  var a = this._gen(node.left);
+  var b = this._gen(node.right);
+
+  function callExpr(expr) {
+    var result;
+    return regeneratorRuntime.wrap(function callExpr$(_context) {
+      while (1) {
+        switch (_context.prev = _context.next) {
+          case 0:
+            if (!(expr.constructor.name == 'GeneratorFunction')) {
+              _context.next = 5;
+              break;
+            }
+
+            return _context.delegateYield(expr(), "t0", 2);
+
+          case 2:
+            result = _context.t0;
+            _context.next = 6;
+            break;
+
+          case 5:
+            result = expr();
+
+          case 6:
+            return _context.abrupt("return", result);
+
+          case 7:
+          case "end":
+            return _context.stop();
+        }
+      }
+    }, _marked[0], this);
+  }
+
+  var cmp = {
+    '==': regeneratorRuntime.mark(function _callee() {
+      return regeneratorRuntime.wrap(function _callee$(_context2) {
+        while (1) {
+          switch (_context2.prev = _context2.next) {
+            case 0:
+              return _context2.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context2.t1 = _context2.t0;
+              return _context2.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context2.t3 = _context2.t2;
+              return _context2.abrupt("return", _context2.t1 == _context2.t3);
+
+            case 5:
+            case "end":
+              return _context2.stop();
+          }
+        }
+      }, _callee, this);
+    }),
+    '!=': regeneratorRuntime.mark(function _callee2() {
+      return regeneratorRuntime.wrap(function _callee2$(_context3) {
+        while (1) {
+          switch (_context3.prev = _context3.next) {
+            case 0:
+              return _context3.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context3.t1 = _context3.t0;
+              return _context3.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context3.t3 = _context3.t2;
+              return _context3.abrupt("return", _context3.t1 != _context3.t3);
+
+            case 5:
+            case "end":
+              return _context3.stop();
+          }
+        }
+      }, _callee2, this);
+    }),
+    '===': regeneratorRuntime.mark(function _callee3() {
+      return regeneratorRuntime.wrap(function _callee3$(_context4) {
+        while (1) {
+          switch (_context4.prev = _context4.next) {
+            case 0:
+              return _context4.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context4.t1 = _context4.t0;
+              return _context4.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context4.t3 = _context4.t2;
+              return _context4.abrupt("return", _context4.t1 === _context4.t3);
+
+            case 5:
+            case "end":
+              return _context4.stop();
+          }
+        }
+      }, _callee3, this);
+    }),
+    '!==': regeneratorRuntime.mark(function _callee4() {
+      return regeneratorRuntime.wrap(function _callee4$(_context5) {
+        while (1) {
+          switch (_context5.prev = _context5.next) {
+            case 0:
+              return _context5.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context5.t1 = _context5.t0;
+              return _context5.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context5.t3 = _context5.t2;
+              return _context5.abrupt("return", _context5.t1 !== _context5.t3);
+
+            case 5:
+            case "end":
+              return _context5.stop();
+          }
+        }
+      }, _callee4, this);
+    }),
+    '<': regeneratorRuntime.mark(function _callee5() {
+      return regeneratorRuntime.wrap(function _callee5$(_context6) {
+        while (1) {
+          switch (_context6.prev = _context6.next) {
+            case 0:
+              return _context6.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context6.t1 = _context6.t0;
+              return _context6.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context6.t3 = _context6.t2;
+              return _context6.abrupt("return", _context6.t1 < _context6.t3);
+
+            case 5:
+            case "end":
+              return _context6.stop();
+          }
+        }
+      }, _callee5, this);
+    }),
+    '<=': regeneratorRuntime.mark(function _callee6() {
+      return regeneratorRuntime.wrap(function _callee6$(_context7) {
+        while (1) {
+          switch (_context7.prev = _context7.next) {
+            case 0:
+              return _context7.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context7.t1 = _context7.t0;
+              return _context7.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context7.t3 = _context7.t2;
+              return _context7.abrupt("return", _context7.t1 <= _context7.t3);
+
+            case 5:
+            case "end":
+              return _context7.stop();
+          }
+        }
+      }, _callee6, this);
+    }),
+    '>': regeneratorRuntime.mark(function _callee7() {
+      return regeneratorRuntime.wrap(function _callee7$(_context8) {
+        while (1) {
+          switch (_context8.prev = _context8.next) {
+            case 0:
+              return _context8.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context8.t1 = _context8.t0;
+              return _context8.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context8.t3 = _context8.t2;
+              return _context8.abrupt("return", _context8.t1 > _context8.t3);
+
+            case 5:
+            case "end":
+              return _context8.stop();
+          }
+        }
+      }, _callee7, this);
+    }),
+    '>=': regeneratorRuntime.mark(function _callee8() {
+      return regeneratorRuntime.wrap(function _callee8$(_context9) {
+        while (1) {
+          switch (_context9.prev = _context9.next) {
+            case 0:
+              return _context9.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context9.t1 = _context9.t0;
+              return _context9.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context9.t3 = _context9.t2;
+              return _context9.abrupt("return", _context9.t1 >= _context9.t3);
+
+            case 5:
+            case "end":
+              return _context9.stop();
+          }
+        }
+      }, _callee8, this);
+    }),
+    '<<': regeneratorRuntime.mark(function _callee9() {
+      return regeneratorRuntime.wrap(function _callee9$(_context10) {
+        while (1) {
+          switch (_context10.prev = _context10.next) {
+            case 0:
+              return _context10.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context10.t1 = _context10.t0;
+              return _context10.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context10.t3 = _context10.t2;
+              return _context10.abrupt("return", _context10.t1 << _context10.t3);
+
+            case 5:
+            case "end":
+              return _context10.stop();
+          }
+        }
+      }, _callee9, this);
+    }),
+    '>>': regeneratorRuntime.mark(function _callee10() {
+      return regeneratorRuntime.wrap(function _callee10$(_context11) {
+        while (1) {
+          switch (_context11.prev = _context11.next) {
+            case 0:
+              return _context11.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context11.t1 = _context11.t0;
+              return _context11.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context11.t3 = _context11.t2;
+              return _context11.abrupt("return", _context11.t1 >> _context11.t3);
+
+            case 5:
+            case "end":
+              return _context11.stop();
+          }
+        }
+      }, _callee10, this);
+    }),
+    '>>>': regeneratorRuntime.mark(function _callee11() {
+      return regeneratorRuntime.wrap(function _callee11$(_context12) {
+        while (1) {
+          switch (_context12.prev = _context12.next) {
+            case 0:
+              return _context12.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context12.t1 = _context12.t0;
+              return _context12.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context12.t3 = _context12.t2;
+              return _context12.abrupt("return", _context12.t1 >>> _context12.t3);
+
+            case 5:
+            case "end":
+              return _context12.stop();
+          }
+        }
+      }, _callee11, this);
+    }),
+    '+': regeneratorRuntime.mark(function _callee12() {
+      return regeneratorRuntime.wrap(function _callee12$(_context13) {
+        while (1) {
+          switch (_context13.prev = _context13.next) {
+            case 0:
+              return _context13.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context13.t1 = _context13.t0;
+              return _context13.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context13.t3 = _context13.t2;
+              return _context13.abrupt("return", _context13.t1 + _context13.t3);
+
+            case 5:
+            case "end":
+              return _context13.stop();
+          }
+        }
+      }, _callee12, this);
+    }),
+    '-': regeneratorRuntime.mark(function _callee13() {
+      return regeneratorRuntime.wrap(function _callee13$(_context14) {
+        while (1) {
+          switch (_context14.prev = _context14.next) {
+            case 0:
+              return _context14.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context14.t1 = _context14.t0;
+              return _context14.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context14.t3 = _context14.t2;
+              return _context14.abrupt("return", _context14.t1 - _context14.t3);
+
+            case 5:
+            case "end":
+              return _context14.stop();
+          }
+        }
+      }, _callee13, this);
+    }),
+    '*': regeneratorRuntime.mark(function _callee14() {
+      return regeneratorRuntime.wrap(function _callee14$(_context15) {
+        while (1) {
+          switch (_context15.prev = _context15.next) {
+            case 0:
+              return _context15.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context15.t1 = _context15.t0;
+              return _context15.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context15.t3 = _context15.t2;
+              return _context15.abrupt("return", _context15.t1 * _context15.t3);
+
+            case 5:
+            case "end":
+              return _context15.stop();
+          }
+        }
+      }, _callee14, this);
+    }),
+    '/': regeneratorRuntime.mark(function _callee15() {
+      return regeneratorRuntime.wrap(function _callee15$(_context16) {
+        while (1) {
+          switch (_context16.prev = _context16.next) {
+            case 0:
+              return _context16.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context16.t1 = _context16.t0;
+              return _context16.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context16.t3 = _context16.t2;
+              return _context16.abrupt("return", _context16.t1 / _context16.t3);
+
+            case 5:
+            case "end":
+              return _context16.stop();
+          }
+        }
+      }, _callee15, this);
+    }),
+    '%': regeneratorRuntime.mark(function _callee16() {
+      return regeneratorRuntime.wrap(function _callee16$(_context17) {
+        while (1) {
+          switch (_context17.prev = _context17.next) {
+            case 0:
+              return _context17.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context17.t1 = _context17.t0;
+              return _context17.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context17.t3 = _context17.t2;
+              return _context17.abrupt("return", _context17.t1 % _context17.t3);
+
+            case 5:
+            case "end":
+              return _context17.stop();
+          }
+        }
+      }, _callee16, this);
+    }),
+    '|': regeneratorRuntime.mark(function _callee17() {
+      return regeneratorRuntime.wrap(function _callee17$(_context18) {
+        while (1) {
+          switch (_context18.prev = _context18.next) {
+            case 0:
+              return _context18.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context18.t1 = _context18.t0;
+              return _context18.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context18.t3 = _context18.t2;
+              return _context18.abrupt("return", _context18.t1 | _context18.t3);
+
+            case 5:
+            case "end":
+              return _context18.stop();
+          }
+        }
+      }, _callee17, this);
+    }),
+    '^': regeneratorRuntime.mark(function _callee18() {
+      return regeneratorRuntime.wrap(function _callee18$(_context19) {
+        while (1) {
+          switch (_context19.prev = _context19.next) {
+            case 0:
+              return _context19.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context19.t1 = _context19.t0;
+              return _context19.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context19.t3 = _context19.t2;
+              return _context19.abrupt("return", _context19.t1 ^ _context19.t3);
+
+            case 5:
+            case "end":
+              return _context19.stop();
+          }
+        }
+      }, _callee18, this);
+    }),
+    '&': regeneratorRuntime.mark(function _callee19() {
+      return regeneratorRuntime.wrap(function _callee19$(_context20) {
+        while (1) {
+          switch (_context20.prev = _context20.next) {
+            case 0:
+              return _context20.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context20.t1 = _context20.t0;
+              return _context20.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context20.t3 = _context20.t2;
+              return _context20.abrupt("return", _context20.t1 & _context20.t3);
+
+            case 5:
+            case "end":
+              return _context20.stop();
+          }
+        }
+      }, _callee19, this);
+    }),
+    'in': regeneratorRuntime.mark(function _callee20() {
+      return regeneratorRuntime.wrap(function _callee20$(_context21) {
+        while (1) {
+          switch (_context21.prev = _context21.next) {
+            case 0:
+              return _context21.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context21.t1 = _context21.t0;
+              return _context21.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context21.t3 = _context21.t2;
+              return _context21.abrupt("return", _context21.t1 in _context21.t3);
+
+            case 5:
+            case "end":
+              return _context21.stop();
+          }
+        }
+      }, _callee20, this);
+    }),
+    'instanceof': regeneratorRuntime.mark(function _callee21() {
+      return regeneratorRuntime.wrap(function _callee21$(_context22) {
+        while (1) {
+          switch (_context22.prev = _context22.next) {
+            case 0:
+              return _context22.delegateYield(callExpr(a), "t0", 1);
+
+            case 1:
+              _context22.t1 = _context22.t0;
+              return _context22.delegateYield(callExpr(b), "t2", 3);
+
+            case 3:
+              _context22.t3 = _context22.t2;
+              return _context22.abrupt("return", _context22.t1 instanceof _context22.t3);
+
+            case 5:
+            case "end":
+              return _context22.stop();
+          }
+        }
+      }, _callee21, this);
+    }),
+    // logic expressions
+    '||': regeneratorRuntime.mark(function _callee22() {
+      return regeneratorRuntime.wrap(function _callee22$(_context23) {
+        while (1) {
+          switch (_context23.prev = _context23.next) {
+            case 0:
+              return _context23.delegateYield(callExpr(a), "t1", 1);
+
+            case 1:
+              _context23.t0 = _context23.t1;
+
+              if (_context23.t0) {
+                _context23.next = 5;
+                break;
+              }
+
+              return _context23.delegateYield(callExpr(b), "t2", 4);
+
+            case 4:
+              _context23.t0 = _context23.t2;
+
+            case 5:
+              return _context23.abrupt("return", _context23.t0);
+
+            case 6:
+            case "end":
+              return _context23.stop();
+          }
+        }
+      }, _callee22, this);
+    }),
+    '&&': regeneratorRuntime.mark(function _callee23() {
+      return regeneratorRuntime.wrap(function _callee23$(_context24) {
+        while (1) {
+          switch (_context24.prev = _context24.next) {
+            case 0:
+              return _context24.delegateYield(callExpr(a), "t1", 1);
+
+            case 1:
+              _context24.t0 = _context24.t1;
+
+              if (!_context24.t0) {
+                _context24.next = 5;
+                break;
+              }
+
+              return _context24.delegateYield(callExpr(b), "t2", 4);
+
+            case 4:
+              _context24.t0 = _context24.t2;
+
+            case 5:
+              return _context24.abrupt("return", _context24.t0);
+
+            case 6:
+            case "end":
+              return _context24.stop();
+          }
+        }
+      }, _callee23, this);
+    })
+  }[node.operator];
+
+  return function () {
+    // FIXME: Convert to yield*
+    var iter = cmp();
+    var res = iter.next();
+    while (!res.done) {
+      res = iter.next();
+    }
+    return res.value;
+  };
+};
+
+Environment.prototype._genUnaryExpr = function (node) {
+  if (node.operator === 'delete') {
+    return this._genDelete(node);
+  }
+  var a = this._gen(node.argument);
+  var op = {
+    '-': function () {
+      return -a();
+    },
+    '+': function () {
+      return +a();
+    },
+    '!': function () {
+      return !a();
+    },
+    '~': function () {
+      return ~a();
+    },
+    'typeof': function () {
+      return typeof a();
+    },
+    'void': function () {
+      return void a();
+    }
+  }[node.operator];
+
+  return function () {
+    return op();
+  };
+};
+
+Environment.prototype._genDelete = function (node) {
+  var obj = this._genObj(node.argument);
+  var attr = this._genName(node.argument);
+
+  return function () {
+    return delete obj()[attr()];
+  };
+};
+
+Environment.prototype._genObjExpr = function (node) {
+  //TODO property.kind: don't assume init when it can also be set/get
+  var self = this;
+  var items = [];
+  node.properties.forEach(function (property) {
+    // object expression keys are static so can be calculated
+    // immediately
+    var key = self._objKey(property.key)();
+    items.push({
+      key: key,
+      getVal: self._gen(property.value)
+    });
+  });
+
+  return function () {
+    var result = {};
+    items.forEach(function (item) {
+      result[item.key] = item.getVal();
+    });
+    return result;
+  };
+};
+
+Environment.prototype._genArrExpr = function (node) {
+  var items = node.elements.map(this._boundGen);
+
+  return function () {
+    return items.map(execute);
+  };
+};
+
+Environment.prototype._objKey = function (node) {
+  var key;
+  if (node.type === 'Identifier') {
+    key = node.name;
+  } else {
+    key = this._gen(node)();
+  }
+
+  return function () {
+    return key;
+  };
+};
+
+Environment.prototype._genCallExpr = function (node) {
+  var self = this;
+  var callee;
+  if (node.callee.type === 'MemberExpression') {
+    var obj = self._genObj(node.callee);
+    var name = self._genName(node.callee);
+    callee = function () {
+      var theObj = obj();
+      return theObj[name()].bind(theObj);
+    };
+  } else {
+    callee = self._gen(node.callee);
+  }
+  var args = node.arguments.map(self._gen.bind(self));
+
+  return regeneratorRuntime.mark(function _callee24() {
+    var c, result, res;
+    return regeneratorRuntime.wrap(function _callee24$(_context25) {
+      while (1) {
+        switch (_context25.prev = _context25.next) {
+          case 0:
+            self.emit('line', node.loc.start.line);
+            c = callee();
+
+            if (!(c === undefined)) {
+              _context25.next = 4;
+              break;
+            }
+
+            return _context25.abrupt("return", c);
+
+          case 4:
+            if (!c.next) {
+              _context25.next = 10;
+              break;
+            }
+
+            return _context25.delegateYield(c, "t0", 6);
+
+          case 6:
+            res = _context25.t0;
+
+            result = res.apply(self._globalObj, args.map(execute));
+            _context25.next = 11;
+            break;
+
+          case 10:
+            result = c.apply(self._globalObj, args.map(execute));
+
+          case 11:
+            if (!(result !== undefined)) {
+              _context25.next = 16;
+              break;
+            }
+
+            if (!result.next) {
+              _context25.next = 16;
+              break;
+            }
+
+            return _context25.delegateYield(result, "t1", 14);
+
+          case 14:
+            res = _context25.t1;
+            return _context25.abrupt("return", res);
+
+          case 16:
+            return _context25.abrupt("return", result);
+
+          case 17:
+          case "end":
+            return _context25.stop();
+        }
+      }
+    }, _callee24, this);
+  });
+};
+
+Environment.prototype._genNewExpr = function (node) {
+  var callee = this._gen(node.callee);
+  var args = node.arguments.map(this._boundGen);
+  var self = this;
+
+  return regeneratorRuntime.mark(function _callee25() {
+    var cl, ar, newObject, constructor;
+    return regeneratorRuntime.wrap(function _callee25$(_context26) {
+      while (1) {
+        switch (_context26.prev = _context26.next) {
+          case 0:
+            self.emit('line', node.loc.start.line);
+            cl = callee();
+            ar = args.map(execute);
+            newObject = Object.create(cl.prototype);
+            constructor = cl.apply(newObject, ar);
+            return _context26.delegateYield(constructor, "t0", 6);
+
+          case 6:
+            return _context26.abrupt("return", newObject);
+
+          case 7:
+          case "end":
+            return _context26.stop();
+        }
+      }
+    }, _callee25, this);
+  });
+};
+
+Environment.prototype._genMemExpr = function (node) {
+  var self = this;
+  var obj = this._gen(node.object);
+  var property = this._memExprProperty(node);
+  return function () {
+    self.emit('line', node.loc.start.line);
+    return obj()[property()];
+  };
+};
+
+Environment.prototype._memExprProperty = function (node) {
+  return node.computed ? this._gen(node.property) : this._objKey(node.property);
+};
+
+Environment.prototype._genThisExpr = function () {
+  var self = this;
+  return function () {
+    return self._curThis;
+  };
+};
+
+Environment.prototype._genSeqExpr = function (node) {
+  var exprs = node.expressions.map(this._boundGen);
+  return function () {
+    var result;
+    exprs.forEach(function (expr) {
+      result = expr();
+    });
+    return result;
+  };
+};
+
+Environment.prototype._genUpdExpr = function (node) {
+  var self = this;
+  var update = {
+    '--true': function (obj, name) {
+      return --obj[name];
+    },
+    '--false': function (obj, name) {
+      return obj[name]--;
+    },
+    '++true': function (obj, name) {
+      return ++obj[name];
+    },
+    '++false': function (obj, name) {
+      return obj[name]++;
+    }
+  }[node.operator + node.prefix];
+  var obj = this._genObj(node.argument);
+  var name = this._genName(node.argument);
+  return regeneratorRuntime.mark(function _callee26() {
+    return regeneratorRuntime.wrap(function _callee26$(_context27) {
+      while (1) {
+        switch (_context27.prev = _context27.next) {
+          case 0:
+            self.emit('line', node.loc.start.line);
+            _context27.next = 3;
+            return;
+
+          case 3:
+            return _context27.abrupt("return", update(obj(), name()));
+
+          case 4:
+          case "end":
+            return _context27.stop();
+        }
+      }
+    }, _callee26, this);
+  });
+};
+
+Environment.prototype._genObj = function (node) {
+  if (node.type === 'Identifier') {
+    return this._getVarStore.bind(this, node.name);
+  } else if (node.type === 'MemberExpression') {
+    return this._gen(node.object);
+  } else {
+    console.warn("Unknown _genObj() type: " + node.type);
+    return noop;
+  }
+};
+
+Environment.prototype._genName = function (node) {
+  if (node.type === 'Identifier') {
+    return function () {
+      return node.name;
+    };
+  } else if (node.type === 'MemberExpression') {
+    return this._memExprProperty(node);
+  } else {
+    console.warn("Unknown _genName() type: " + node.type);
+    return noop;
+  }
+};
+
+Environment.prototype._genLit = function (node) {
+  return function () {
+    return node.value;
+  };
+};
+
+Environment.prototype._genIdent = function (node) {
+  var self = this;
+  return function () {
+    return self._getVarStore(node.name)[node.name];
+  };
+};
+
+Environment.prototype._getVarStore = function (name) {
+  var store = this._curVarStore;
+  do {
+    if (store.vars.hasOwnProperty(name)) {
+      return store.vars;
+    }
+  } while (store = store.parent);
+
+  // global object as fallback
+  return this._globalObj;
+};
+
+Environment.prototype._genAssignExpr = function (node) {
+  var self = this;
+  var setter = {
+    '=': function (obj, name, val) {
+      return obj[name] = val;
+    },
+    '+=': function (obj, name, val) {
+      return obj[name] += val;
+    },
+    '-=': function (obj, name, val) {
+      return obj[name] -= val;
+    },
+    '*=': function (obj, name, val) {
+      return obj[name] *= val;
+    },
+    '/=': function (obj, name, val) {
+      return obj[name] /= val;
+    },
+    '%=': function (obj, name, val) {
+      return obj[name] %= val;
+    },
+    '<<=': function (obj, name, val) {
+      return obj[name] <<= val;
+    },
+    '>>=': function (obj, name, val) {
+      return obj[name] >>= val;
+    },
+    '>>>=': function (obj, name, val) {
+      return obj[name] >>>= val;
+    },
+    '|=': function (obj, name, val) {
+      return obj[name] |= val;
+    },
+    '^=': function (obj, name, val) {
+      return obj[name] ^= val;
+    },
+    '&=': function (obj, name, val) {
+      return obj[name] &= val;
+    }
+  }[node.operator];
+  var obj = this._genObj(node.left);
+  var name = this._genName(node.left);
+  var val = this._gen(node.right);
+  return regeneratorRuntime.mark(function _callee27() {
+    var v;
+    return regeneratorRuntime.wrap(function _callee27$(_context28) {
+      while (1) {
+        switch (_context28.prev = _context28.next) {
+          case 0:
+            self.emit('line', node.left.loc.start.line);
+            v = val();
+
+            if (!(v !== undefined)) {
+              _context28.next = 6;
+              break;
+            }
+
+            if (!v.next) {
+              _context28.next = 6;
+              break;
+            }
+
+            return _context28.delegateYield(v, "t0", 5);
+
+          case 5:
+            v = _context28.t0;
+
+          case 6:
+            return _context28.abrupt("return", setter(obj(), name(), v));
+
+          case 7:
+          case "end":
+            return _context28.stop();
+        }
+      }
+    }, _callee27, this);
+  });
+};
+
+Environment.prototype._genFuncDecl = function (node) {
+  this._curDeclarations[node.id.name] = this._genFuncExpr(node);
+  return regeneratorRuntime.mark(function _callee28() {
+    return regeneratorRuntime.wrap(function _callee28$(_context29) {
+      while (1) {
+        switch (_context29.prev = _context29.next) {
+          case 0:
+            return _context29.abrupt("return", noop);
+
+          case 1:
+          case "end":
+            return _context29.stop();
+        }
+      }
+    }, _callee28, this);
+  });
+};
+
+Environment.prototype._genVarDecl = function (node) {
+  var assignments = [];
+  for (var i = 0; i < node.declarations.length; i++) {
+    var decl = node.declarations[i];
+    this._curDeclarations[decl.id.name] = noop;
+    if (decl.init) {
+      assignments.push({
+        type: 'AssignmentExpression',
+        operator: '=',
+        left: decl.id,
+        right: decl.init
+      });
+    }
+  }
+  return this._gen({
+    type: 'BlockStatement',
+    body: assignments
+  });
+};
+
+Environment.prototype.getState = function () {
+  return this.STATE;
+};
+
+Environment.prototype.setState = function (state) {
+  this.STATE = state;
+};
+
+Environment.prototype._genFuncExpr = function (node) {
+  var self = this;
+
+  var oldDeclarations = self._curDeclarations;
+  self._curDeclarations = {};
+  var body = self._gen(node.body);
+  var declarations = self._curDeclarations;
+  self._curDeclarations = oldDeclarations;
+
+  // reset var store
+  return function () {
+    var parent = self._curVarStore;
+    return regeneratorRuntime.mark(function _callee29() {
+      var args,
+          i,
+          oldStore,
+          oldThis,
+          result,
+          _args30 = arguments;
+      return regeneratorRuntime.wrap(function _callee29$(_context30) {
+        while (1) {
+          switch (_context30.prev = _context30.next) {
+            case 0:
+              // build arguments object
+              args = new Arguments();
+
+              args.length = _args30.length;
+              for (i = 0; i < _args30.length; i++) {
+                args[i] = _args30[i];
+              }
+
+              // switch interpreter 'stack'
+              oldStore = self._curVarStore;
+              oldThis = self._curThis;
+
+              self._curVarStore = createVarStore(parent);
+              self._curThis = this;
+
+              addDeclarationsToStore(declarations, self._curVarStore);
+              self._curVarStore.vars.arguments = args;
+
+              // add function args to var store
+              node.params.forEach(function (param, i) {
+                self._curVarStore.vars[param.name] = args[i];
+              });
+
+              // run function body
+              return _context30.delegateYield(body(), "t0", 11);
+
+            case 11:
+              result = _context30.t0;
+
+
+              // switch 'stack' back
+              self._curThis = oldThis;
+              self._curVarStore = oldStore;
+
+              if (!(result instanceof Return)) {
+                _context30.next = 16;
+                break;
+              }
+
+              return _context30.abrupt("return", result.value);
+
+            case 16:
+            case "end":
+              return _context30.stop();
+          }
+        }
+      }, _callee29, this);
+    });
+  };
+};
+
+function addDeclarationsToStore(declarations, varStore) {
+  for (var key in declarations) {
+    if (declarations.hasOwnProperty(key) && !varStore.vars.hasOwnProperty(key)) {
+      varStore.vars[key] = declarations[key]();
+    }
+  }
+}
+
+Environment.prototype._genProgram = function (node) {
+  var self = this;
+  var stmtClosures = node.body.map(function (stmt) {
+    return self._gen(stmt);
+  });
+
+  return regeneratorRuntime.mark(function _callee30() {
+    var result, i;
+    return regeneratorRuntime.wrap(function _callee30$(_context31) {
+      while (1) {
+        switch (_context31.prev = _context31.next) {
+          case 0:
+            i = 0;
+
+          case 1:
+            if (!(i < stmtClosures.length)) {
+              _context31.next = 17;
+              break;
+            }
+
+            if (!(stmtClosures[i].constructor.name === 'GeneratorFunction')) {
+              _context31.next = 9;
+              break;
+            }
+
+            return _context31.delegateYield(stmtClosures[i](), "t0", 4);
+
+          case 4:
+            result = _context31.t0;
+            _context31.next = 7;
+            return;
+
+          case 7:
+            _context31.next = 12;
+            break;
+
+          case 9:
+            result = stmtClosures[i]();
+            _context31.next = 12;
+            return;
+
+          case 12:
+            if (!(result === Break || result === Continue || result instanceof Return)) {
+              _context31.next = 14;
+              break;
+            }
+
+            return _context31.abrupt("break", 17);
+
+          case 14:
+            i++;
+            _context31.next = 1;
+            break;
+
+          case 17:
+            return _context31.abrupt("return", result);
+
+          case 18:
+          case "end":
+            return _context31.stop();
+        }
+      }
+    }, _callee30, this);
+  });
+};
+
+Environment.prototype._genExprStmt = function (node) {
+  return this._gen(node.expression);
+};
+
+Environment.prototype._genEmptyStmt = function () {
+  return noop;
+};
+
+Environment.prototype._genRetStmt = function (node) {
+  var self = this;
+  var arg = node.argument ? this._gen(node.argument) : noop;
+  return function () {
+    self.emit('line', node.loc.start.line);
+    return new Return(arg());
+  };
+};
+
+Environment.prototype._genIfStmt = function (node) {
+  var self = this;
+  var test = function () {
+    self.emit('line', node.loc.start.line);
+    return self._gen(node.test)();
+  };
+  var consequent = this._gen(node.consequent);
+  var alternate = node.alternate ? this._gen(node.alternate) : regeneratorRuntime.mark(function _callee31() {
+    return regeneratorRuntime.wrap(function _callee31$(_context32) {
+      while (1) {
+        switch (_context32.prev = _context32.next) {
+          case 0:
+            return _context32.abrupt("return", noop);
+
+          case 1:
+          case "end":
+            return _context32.stop();
+        }
+      }
+    }, _callee31, this);
+  });
+
+  return regeneratorRuntime.mark(function _callee32() {
+    var result;
+    return regeneratorRuntime.wrap(function _callee32$(_context33) {
+      while (1) {
+        switch (_context33.prev = _context33.next) {
+          case 0:
+            if (!test()) {
+              _context33.next = 5;
+              break;
+            }
+
+            return _context33.delegateYield(consequent(), "t1", 2);
+
+          case 2:
+            _context33.t0 = _context33.t1;
+            _context33.next = 7;
+            break;
+
+          case 5:
+            return _context33.delegateYield(alternate(), "t2", 6);
+
+          case 6:
+            _context33.t0 = _context33.t2;
+
+          case 7:
+            result = _context33.t0;
+            return _context33.abrupt("return", result);
+
+          case 9:
+          case "end":
+            return _context33.stop();
+        }
+      }
+    }, _callee32, this);
+  });
+};
+
+Environment.prototype._genCondStmt = function (node) {
+  var self = this;
+  var test = function () {
+    self.emit('line', node.loc.start.line);
+    return self._gen(node.test)();
+  };
+  var consequent = this._gen(node.consequent);
+  var alternate = node.alternate ? this._gen(node.alternate) : noop;
+
+  return function () {
+    return test() ? consequent() : alternate();
+  };
+};
+
+Environment.prototype._genLoopStmt = function (node, body) {
+  var self = this;
+  var init = node.init ? this._gen(node.init) : regeneratorRuntime.mark(function _callee33() {
+    return regeneratorRuntime.wrap(function _callee33$(_context34) {
+      while (1) {
+        switch (_context34.prev = _context34.next) {
+          case 0:
+            return _context34.abrupt("return", noop);
+
+          case 1:
+          case "end":
+            return _context34.stop();
+        }
+      }
+    }, _callee33, this);
+  });
+  var test = node.test ? regeneratorRuntime.mark(function _callee34() {
+    return regeneratorRuntime.wrap(function _callee34$(_context35) {
+      while (1) {
+        switch (_context35.prev = _context35.next) {
+          case 0:
+            self.emit('line', node.loc.start.line);
+            return _context35.abrupt("return", self._gen(node.test)());
+
+          case 2:
+          case "end":
+            return _context35.stop();
+        }
+      }
+    }, _callee34, this);
+  }) : regeneratorRuntime.mark(function _callee35() {
+    return regeneratorRuntime.wrap(function _callee35$(_context36) {
+      while (1) {
+        switch (_context36.prev = _context36.next) {
+          case 0:
+            return _context36.abrupt("return", true);
+
+          case 1:
+          case "end":
+            return _context36.stop();
+        }
+      }
+    }, _callee35, this);
+  });
+  var update = node.update ? this._gen(node.update) : regeneratorRuntime.mark(function _callee36() {
+    return regeneratorRuntime.wrap(function _callee36$(_context37) {
+      while (1) {
+        switch (_context37.prev = _context37.next) {
+          case 0:
+            return _context37.abrupt("return", noop);
+
+          case 1:
+          case "end":
+            return _context37.stop();
+        }
+      }
+    }, _callee36, this);
+  });
+  body = body || this._gen(node.body);
+
+  return regeneratorRuntime.mark(function _callee37() {
+    var resp, newResp;
+    return regeneratorRuntime.wrap(function _callee37$(_context38) {
+      while (1) {
+        switch (_context38.prev = _context38.next) {
+          case 0:
+            self.emit('line', node.loc.start.line);
+            return _context38.delegateYield(init(), "t0", 2);
+
+          case 2:
+            return _context38.delegateYield(test(), "t1", 3);
+
+          case 3:
+            if (!_context38.t1) {
+              _context38.next = 16;
+              break;
+            }
+
+            return _context38.delegateYield(body(), "t2", 5);
+
+          case 5:
+            newResp = _context38.t2;
+
+            if (!(newResp === Break)) {
+              _context38.next = 8;
+              break;
+            }
+
+            return _context38.abrupt("break", 16);
+
+          case 8:
+            if (!(newResp === Continue)) {
+              _context38.next = 10;
+              break;
+            }
+
+            return _context38.abrupt("continue", 13);
+
+          case 10:
+            resp = newResp;
+
+            if (!(newResp instanceof Return)) {
+              _context38.next = 13;
+              break;
+            }
+
+            return _context38.abrupt("break", 16);
+
+          case 13:
+            return _context38.delegateYield(update(), "t3", 14);
+
+          case 14:
+            _context38.next = 2;
+            break;
+
+          case 16:
+            return _context38.abrupt("return", resp);
+
+          case 17:
+          case "end":
+            return _context38.stop();
+        }
+      }
+    }, _callee37, this);
+  });
+};
+
+Environment.prototype._genDoWhileStmt = function (node) {
+  var body = this._gen(node.body);
+  var loop = this._genLoopStmt(node, body);
+
+  return regeneratorRuntime.mark(function _callee38() {
+    return regeneratorRuntime.wrap(function _callee38$(_context39) {
+      while (1) {
+        switch (_context39.prev = _context39.next) {
+          case 0:
+            return _context39.delegateYield(body(), "t0", 1);
+
+          case 1:
+            return _context39.delegateYield(loop(), "t1", 2);
+
+          case 2:
+          case "end":
+            return _context39.stop();
+        }
+      }
+    }, _callee38, this);
+  });
+};
+
+Environment.prototype._genForInStmt = function (node) {
+  var self = this;
+  var right = self._gen(node.right);
+  var body = self._gen(node.body);
+
+  var left = node.left;
+  if (left.type === 'VariableDeclaration') {
+    self._curDeclarations[left.declarations[0].id.name] = noop;
+    left = left.declarations[0].id;
+  }
+  return regeneratorRuntime.mark(function _callee39() {
+    var resp, x;
+    return regeneratorRuntime.wrap(function _callee39$(_context40) {
+      while (1) {
+        switch (_context40.prev = _context40.next) {
+          case 0:
+            self.emit('line', node.loc.start.line);
+            _context40.t0 = regeneratorRuntime.keys(right());
+
+          case 2:
+            if ((_context40.t1 = _context40.t0()).done) {
+              _context40.next = 10;
+              break;
+            }
+
+            x = _context40.t1.value;
+
+            self.emit('line', node.loc.start.line);
+            return _context40.delegateYield(self._genAssignExpr({
+              operator: '=',
+              left: left,
+              right: {
+                type: 'Literal',
+                value: x
+              }
+            })(), "t2", 6);
+
+          case 6:
+            return _context40.delegateYield(body(), "t3", 7);
+
+          case 7:
+            resp = _context40.t3;
+            _context40.next = 2;
+            break;
+
+          case 10:
+            return _context40.abrupt("return", resp);
+
+          case 11:
+          case "end":
+            return _context40.stop();
+        }
+      }
+    }, _callee39, this);
+  });
+};
+
+Environment.prototype._genWithStmt = function (node) {
+  var self = this;
+  var obj = self._gen(node.object);
+  var body = self._gen(node.body);
+  return regeneratorRuntime.mark(function _callee40() {
+    var result;
+    return regeneratorRuntime.wrap(function _callee40$(_context41) {
+      while (1) {
+        switch (_context41.prev = _context41.next) {
+          case 0:
+            self._curVarStore = createVarStore(self._curVarStore, obj());
+            return _context41.delegateYield(body(), "t0", 2);
+
+          case 2:
+            result = _context41.t0;
+
+            self._curVarStore = self._curVarStore.parent;
+            return _context41.abrupt("return", result);
+
+          case 5:
+          case "end":
+            return _context41.stop();
+        }
+      }
+    }, _callee40, this);
+  });
+};
+
+Environment.prototype._genThrowStmt = function (node) {
+  var arg = this._gen(node.argument);
+  return function () {
+    throw arg();
+  };
+};
+
+Environment.prototype._genTryStmt = function (node) {
+  var block = this._gen(node.block);
+  var handler = this._genCatchHandler(node.handler);
+  var finalizer = node.finalizer ? this._gen(node.finalizer) : function (x) {
+    return x;
+  };
+
+  return function () {
+    try {
+      return finalizer(block());
+    } catch (err) {
+      return finalizer(handler(err));
+    }
+  };
+};
+
+Environment.prototype._genCatchHandler = function (node) {
+  if (!node) {
+    return noop;
+  }
+  var self = this;
+  var body = self._gen(node.body);
+  return function (err) {
+    var old = self._curVarStore.vars[node.param.name];
+    self._curVarStore.vars[node.param.name] = err;
+    var resp = body();
+    self._curVarStore.vars[node.param.name] = old;
+
+    return resp;
+  };
+};
+
+Environment.prototype._genContStmt = function () {
+  return function () {
+    return Continue;
+  };
+};
+
+Environment.prototype._genBreakStmt = function () {
+  return function () {
+    return Break;
+  };
+};
+
+Environment.prototype._genSwitchStmt = function (node) {
+  var self = this;
+
+  var discriminant = self._gen(node.discriminant);
+  var cases = node.cases.map(function (curCase) {
+    return {
+      test: curCase.test ? self._gen(curCase.test) : null,
+      code: self._genProgram({ body: curCase.consequent })
+    };
+  });
+
+  return regeneratorRuntime.mark(function _callee41() {
+    var foundMatch, discriminantVal, resp, defaultCase, i, curCase, newResp;
+    return regeneratorRuntime.wrap(function _callee41$(_context42) {
+      while (1) {
+        switch (_context42.prev = _context42.next) {
+          case 0:
+            foundMatch = false;
+            discriminantVal = discriminant();
+            i = 0;
+
+          case 3:
+            if (!(i < cases.length)) {
+              _context42.next = 22;
+              break;
+            }
+
+            curCase = cases[i];
+
+            if (foundMatch) {
+              _context42.next = 12;
+              break;
+            }
+
+            if (curCase.test) {
+              _context42.next = 9;
+              break;
+            }
+
+            defaultCase = curCase;
+            return _context42.abrupt("continue", 19);
+
+          case 9:
+            if (!(discriminantVal !== curCase.test())) {
+              _context42.next = 11;
+              break;
+            }
+
+            return _context42.abrupt("continue", 19);
+
+          case 11:
+            foundMatch = true;
+
+          case 12:
+            return _context42.delegateYield(curCase.code(), "t0", 13);
+
+          case 13:
+            newResp = _context42.t0;
+
+            if (!(newResp === Break)) {
+              _context42.next = 16;
+              break;
+            }
+
+            return _context42.abrupt("return", resp);
+
+          case 16:
+            resp = newResp;
+
+            if (!(resp === Continue || resp instanceof Return)) {
+              _context42.next = 19;
+              break;
+            }
+
+            return _context42.abrupt("return", resp);
+
+          case 19:
+            i++;
+            _context42.next = 3;
+            break;
+
+          case 22:
+            if (!(!foundMatch && defaultCase)) {
+              _context42.next = 25;
+              break;
+            }
+
+            return _context42.delegateYield(defaultCase.code(), "t1", 24);
+
+          case 24:
+            return _context42.abrupt("return", _context42.t1);
+
+          case 25:
+          case "end":
+            return _context42.stop();
+        }
+      }
+    }, _callee41, this);
+  });
+};
+
+exports.Environment = Environment;
+exports.evaluate = function (code) {
+  var env = new Environment(global);
+  var iterator = env.gen(code)();
+  var result = iterator.next();
+  while (!result.done) {
+    result = iterator.next();
+  }
+  return result.value;
+};
+
+//console.log(exports.evaluate("1 + 1"));
+
+}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"_process":2,"acorn":"acorn","events":1,"util":5}]},{},[]);

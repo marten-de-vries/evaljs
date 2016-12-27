@@ -95,8 +95,8 @@ Is it complete?
 
 No labeled statements; no nice error handling (although there is a
 ``DEBUG`` option). There are probably bugs. That said, it can run itself
-including acorn without modifications, so its supported subset of JS is
-usable. PRs containing improvements welcome!
+and acorn, so its supported subset of JS is usable. PRs containing 
+improvements welcome!
 
 How slow is it?
 ---------------

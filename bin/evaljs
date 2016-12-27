@@ -6,10 +6,18 @@ var parse = require('acorn').parse;
 var fs = require('fs');
 var env = new evaljs.Environment([global, {require: require}]);
 
+function run(iter){
+  var result = iter.next();
+  while(!result.done) {
+    result = iter.next();
+  }
+  return result.value;
+}
+
 repl.start({
   eval: function (cmd, context, filename, callback) {
     try {
-      callback(null, env.gen(cmd)())
+      callback(null, run(env.gen(cmd)()))
     } catch (err) {
       callback(err);
     };

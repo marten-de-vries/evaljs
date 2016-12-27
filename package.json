@@ -40,9 +40,10 @@
   "license": "ISC",
   "author": "Marten de Vries",
   "contributors": [
-      { "name" : "Jason Huggins",
-        "email" : "jrhuggins@gmail.com",
-        "url" : "http://www.hugs.io/"
-      }
+    {
+      "name": "Jason Huggins",
+      "email": "jrhuggins@gmail.com",
+      "url": "http://www.hugs.io/"
+    }
   ]
 }
